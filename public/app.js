@@ -1,7 +1,9 @@
 /* ============================================
-   Speech Analyst – app.js v9
+   Speech Analyst – app.js v11
    Echtzeit-Sprachanalyse via Web Speech API
    - Füllwort-Erkennung: Unicode-Normalisierung
+   - Zeitbasierter Moving Average (10s / 20s)
+   - Text-Feedback in deutscher Sprache
    ============================================ */
 
 (function() {
@@ -26,6 +28,8 @@
   var tonalityIndicator   = document.getElementById('tonalityIndicator');
   var loudnessBar         = document.getElementById('loudnessBar');
   var loudnessDisplay     = document.getElementById('loudnessDisplay');
+  var loudnessFeedback    = document.getElementById('loudnessFeedback');
+  var tonalityFeedback    = document.getElementById('tonalityFeedback');
 
   // Konfiguration
   var FILLER_VARIANTS = {
@@ -76,11 +80,18 @@
   var pauseDurations      = [];
   var currentPauseDuration = 0;
 
-  // === TONALITÄTS-ANALYSE – Zustand ===
-  var TONE_HISTORY_SIZE        = 30;
-  var TONE_VARIANCE_THRESHOLD  = 50;
-  var TONE_TREND_THRESHOLD     = 20;
-  var pitchHistory            = [];
+  // === ZEITBASIERTER GLEITENDER MITTELWERT (Moving Average) – Zustand ===
+  var VOLUME_WINDOW_MS  = 10000;   // 10 Sekunden für Lautstärke
+  var PITCH_WINDOW_MS   = 20000;   // 20 Sekunden für Tonalität
+  var volumeHistory     = [];      // Array von { value, ts }
+  var pitchHistory      = [];      // Array von { value, ts }
+  var lastVolumeFBTime  = 0;       // für träges Text-Feedback
+  var lastToneFBTime    = 0;
+  var FEEDBACK_INTERVAL = 500;     // Text-Feedback max. alle 500ms aktualisieren
+
+  // === TONALITÄTS-ANALYSE – Schwellen für Varianz-Feedback ===
+  var TONE_STD_MONOTONE_MAX = 15;
+  var TONE_STD_VARIED_MAX   = 45;
 
   // === LAUTSTÄRKE-ANALYSE – Zustand ===
   var LOUDNESS_QUIET_MAX = 0.02;
@@ -215,52 +226,33 @@
     }
   }
 
-  // >>> FÜLLWORT-ERKENNUNG – NEU IN v9 <<<
-  // Problem: Die Web Speech API kann "ähm" als "ähm", "aehm", "ehm", "e", "ä" 
-  // oder "a" transkribieren. 
-  // Lösung: Wir normalisieren jedes Wort VOR der Prüfung:
-  //   ä → ae, ö → oe, ü → ue, ß → ss
-  // Dann prüfen wir gegen eine vollständige Liste aller möglichen Varianten.
+  // >>> FÜLLWORT-ERKENNUNG <<<
   function normalizeWord(word) {
     var w = word.toLowerCase();
     var result = '';
     for (var j = 0; j < w.length; j++) {
       var c = w.charCodeAt(j);
-      // a=97, e=101, h=104, m=109, o=111, u=117 – ASCII-Buchstaben
-      // ae=97+101, oe=111+101, ue=117+101, ss=115+115
-      // Unicode-Umlaute als Ersatz: a-Umlaut (228) -> ae, o-Umlaut (246) -> oe, u-Umlaut (252) -> ue, szlig (223) -> ss
-      if (c === 228) { result += 'ae'; }      // ä
-      else if (c === 246) { result += 'oe'; } // ö
-      else if (c === 252) { result += 'ue'; } // ü
-      else if (c === 223) { result += 'ss'; } // ß
-      else if (c === 196) { result += 'ae'; } // Ä
-      else if (c === 214) { result += 'oe'; } // Ö
-      else if (c === 220) { result += 'ue'; } // Ü
+      if (c === 228) { result += 'ae'; }
+      else if (c === 246) { result += 'oe'; }
+      else if (c === 252) { result += 'ue'; }
+      else if (c === 223) { result += 'ss'; }
+      else if (c === 196) { result += 'ae'; }
+      else if (c === 214) { result += 'oe'; }
+      else if (c === 220) { result += 'ue'; }
       else { result += w.charAt(j); }
     }
     return result;
   }
 
   function isFillerWord(word) {
-    // Erst normalisieren (Umlaute → ASCII)
     var w = normalizeWord(word);
-    
-    // Satzzeichen entfernen
     w = w.replace(/[.,!?;:()"'\u2014\u2013]/g, '').trim();
-    
     if (w.length === 0) return false;
-
-    // 1. Direkter Match in der Varianten-Liste
     if (FILLER_VARIANTS[w]) return true;
-
-    // 2. Kurze Wörter (1-4 Zeichen): bestehen sie NUR aus a,e,u,h,m,o?
     if (w.length <= 4) {
       if (/^[aeuohm]+$/i.test(w)) return true;
     }
-
-    // 3. Bekannte längere Füllwörter
     if (/^(tja|naja|nun|also|quasi|halt|irgendwie|eigentlich|sozusagen|praktisch|sprich)$/i.test(w)) return true;
-
     return false;
   }
 
@@ -341,11 +333,66 @@
     return { label: 'Laut', className: 'loudness-loud', percent: Math.min(67 + (rms - LOUDNESS_LOUD_MIN) / 0.20 * 33, 100) };
   }
 
+  // === ZEITBASIERTE HILFSFUNKTIONEN ===
+  function pruneByAge(arr, windowMs, now) {
+    var cutoff = now - windowMs;
+    while (arr.length > 0 && arr[0].ts < cutoff) {
+      arr.shift();
+    }
+  }
+
+  function extractValues(arr) {
+    var values = [];
+    for (var i = 0; i < arr.length; i++) {
+      values.push(arr[i].value);
+    }
+    return values;
+  }
+
+  function calcMovingAverage(arr) {
+    if (arr.length === 0) return 0;
+    var sum = 0;
+    for (var i = 0; i < arr.length; i++) {
+      sum += arr[i];
+    }
+    return sum / arr.length;
+  }
+
+  function calcStdDev(arr) {
+    if (arr.length < 2) return 0;
+    var avg = calcMovingAverage(arr);
+    var variance = 0;
+    for (var i = 0; i < arr.length; i++) {
+      variance += Math.pow(arr[i] - avg, 2);
+    }
+    variance /= arr.length;
+    return Math.sqrt(variance);
+  }
+
   function updateLoudnessUI(rms) {
     var cls = classifyLoudness(rms);
     loudnessBar.style.width = cls.percent + '%';
     loudnessDisplay.textContent = cls.label;
     loudnessDisplay.className = 'metric-value small ' + cls.className;
+
+    // === Text-Feedback für Lautstärke (träge aktualisiert) ===
+    var now = Date.now();
+    if (now - lastVolumeFBTime >= FEEDBACK_INTERVAL) {
+      lastVolumeFBTime = now;
+      var feedbackText, feedbackClass;
+      if (rms < LOUDNESS_QUIET_MAX) {
+        feedbackText  = 'Bitte lauter sprechen';
+        feedbackClass = 'loudness-feedback-quiet';
+      } else if (rms <= LOUDNESS_LOUD_MIN) {
+        feedbackText  = 'Optimale Lautstärke';
+        feedbackClass = 'loudness-feedback-normal';
+      } else {
+        feedbackText  = 'Bitte leiser sprechen';
+        feedbackClass = 'loudness-feedback-loud';
+      }
+      loudnessFeedback.textContent = feedbackText;
+      loudnessFeedback.className = 'feedback-text ' + feedbackClass;
+    }
   }
 
   // ============================================================
@@ -353,14 +400,12 @@
   // ============================================================
   function detectPause(rms, now) {
     if (rms < PAUSE_RMS_THRESHOLD) {
-      // Stille erkannt
       if (!isInPause) {
         isInPause = true;
         pauseStartTime = now;
       }
       currentPauseDuration = (now - pauseStartTime) / 1000;
     } else {
-      // Sprache erkannt – Pause beendet
       if (isInPause) {
         var durationSec = (now - pauseStartTime) / 1000;
         if (durationSec >= PAUSE_MIN_DURATION_MS / 1000) {
@@ -399,10 +444,10 @@
     var rms = 0;
     for (var i = 0; i < buflen; i++) rms += timeDomainData[i] * timeDomainData[i];
     rms = Math.sqrt(rms / buflen);
-    if (rms < 0.01) return 0; // zu leise, kein Ton erkennbar
+    if (rms < 0.01) return 0;
 
-    var maxOffset = Math.floor(sampleRate / 80);  // tiefste Frequenz ~80 Hz
-    var minOffset = Math.floor(sampleRate / 400); // höchste Frequenz ~400 Hz
+    var maxOffset = Math.floor(sampleRate / 80);
+    var minOffset = Math.floor(sampleRate / 400);
     for (var offset = minOffset; offset <= maxOffset; offset++) {
       var corr = 0;
       for (var i = 0; i < buflen - offset; i++) {
@@ -413,34 +458,67 @@
     return bestOffset > 0 ? sampleRate / bestOffset : 0;
   }
 
-  function updateTonality(pitchHz) {
-    if (pitchHz > 0) pitchHistory.push(pitchHz);
-    if (pitchHistory.length > TONE_HISTORY_SIZE) pitchHistory.shift();
+  function updateTonality(pitchHz, now) {
+    // Pitch-Wert mit Timestamp ins Array einfügen
+    if (pitchHz > 0) {
+      pitchHistory.push({ value: pitchHz, ts: now });
+    }
+
+    // Alte Werte löschen (älter als PITCH_WINDOW_MS)
+    pruneByAge(pitchHistory, PITCH_WINDOW_MS, now);
+
     if (pitchHistory.length < 5) {
       tonalityDisplay.textContent = '—';
       tonalityIndicator.textContent = 'Unbekannt';
       tonalityIndicator.className = 'indicator';
+      tonalityFeedback.textContent = '—';
+      tonalityFeedback.className = 'feedback-text';
       return;
     }
-    var avg = pitchHistory.reduce(function(a, b) { return a + b; }, 0) / pitchHistory.length;
-    var variance = pitchHistory.reduce(function(sum, p) { return sum + Math.pow(p - avg, 2); }, 0) / pitchHistory.length;
-    var half = Math.floor(pitchHistory.length / 2);
-    var first = pitchHistory.slice(0, half);
-    var second = pitchHistory.slice(half);
-    var avg1 = first.reduce(function(a, b) { return a + b; }, 0) / first.length;
-    var avg2 = second.reduce(function(a, b) { return a + b; }, 0) / second.length;
 
-    var label, className;
-    if (variance < TONE_VARIANCE_THRESHOLD) {
-      label = 'Monoton'; className = 'tone-monotone';
-    } else if (avg2 - avg1 > TONE_TREND_THRESHOLD) {
-      label = 'Steigend'; className = 'tone-rising';
-    } else if (avg1 - avg2 > TONE_TREND_THRESHOLD) {
-      label = 'Fallend'; className = 'tone-falling';
-    } else {
-      label = 'Variiert'; className = 'tone-varied';
+    var values = extractValues(pitchHistory);
+    var smoothedAvg = calcMovingAverage(values);
+    var stdDev      = calcStdDev(values);
+
+    // Tonhöhe (geglättet) anzeigen
+    tonalityDisplay.textContent = Math.round(smoothedAvg) + ' Hz';
+
+    // === Text-Feedback für Tonvarianz (träge aktualisiert) ===
+    if (now - lastToneFBTime >= FEEDBACK_INTERVAL) {
+      lastToneFBTime = now;
+      var varianceLabel, varianceClass;
+      if (stdDev < TONE_STD_MONOTONE_MAX) {
+        varianceLabel = 'Zu monoton';
+        varianceClass = 'tone-feedback-monotone';
+      } else if (stdDev < TONE_STD_VARIED_MAX) {
+        varianceLabel = 'Gute Tonvarianz';
+        varianceClass = 'tone-feedback-varied';
+      } else {
+        varianceLabel = 'Sehr dynamisch';
+        varianceClass = 'tone-feedback-dynamic';
+      }
+      tonalityFeedback.textContent = varianceLabel;
+      tonalityFeedback.className = 'feedback-text ' + varianceClass;
     }
-    tonalityDisplay.textContent = Math.round(avg) + ' Hz';
+
+    // Bestehenden Indikator (Monoton/Steigend/Fallend/Variiert) beibehalten
+    var label, className;
+    if (stdDev < TONE_STD_MONOTONE_MAX) {
+      label = 'Monoton'; className = 'tone-monotone';
+    } else {
+      var half = Math.floor(values.length / 2);
+      if (half < 2) { label = 'Variiert'; className = 'tone-varied'; }
+      else {
+        var first = values.slice(0, half);
+        var second = values.slice(half);
+        var avg1 = calcMovingAverage(first);
+        var avg2 = calcMovingAverage(second);
+        var diff = avg2 - avg1;
+        if (diff > 20)            { label = 'Steigend'; className = 'tone-rising'; }
+        else if (diff < -20)      { label = 'Fallend'; className = 'tone-falling'; }
+        else                      { label = 'Variiert'; className = 'tone-varied'; }
+      }
+    }
     tonalityIndicator.textContent = label;
     tonalityIndicator.className = 'indicator ' + className;
   }
@@ -456,7 +534,6 @@
     timeDomainData = new Float32Array(analyser.fftSize);
     var source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
-    // Nicht mit destination verbinden – verhindert Rückkopplung
   }
 
   function runAudioAnalysis() {
@@ -469,12 +546,15 @@
     detectPause(rms, now);
     updatePauseUI();
 
-    // Tonalitäts-Analyse
+    // Tonalitäts-Analyse (zeitbasiert auf 20s)
     var pitch = estimatePitch(timeDomainData, audioContext.sampleRate);
-    updateTonality(pitch);
+    updateTonality(pitch, now);
 
-    // Lautstärke-Analyse
-    updateLoudnessUI(rms);
+    // Lautstärke-Analyse (zeitbasiert auf 10s)
+    volumeHistory.push({ value: rms, ts: now });
+    pruneByAge(volumeHistory, VOLUME_WINDOW_MS, now);
+    var smoothedRMS = calcMovingAverage(extractValues(volumeHistory));
+    updateLoudnessUI(smoothedRMS);
 
     audioAnalysisId = requestAnimationFrame(runAudioAnalysis);
   }
@@ -515,14 +595,12 @@
     if (silenceTimer) clearInterval(silenceTimer);
     silenceTimer = setInterval(checkSilence, 5000);
 
-    // === AUDIO-INFRASTRUKTUR STARTEN (gleicher Mikrofon-Zugriff) ===
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(function(stream) {
         micStream = stream;
         initAudioContext(stream);
         runAudioAnalysis();
 
-        // Spracherkennung starten (nachdem Mikrofon-Zugriff gewährt wurde)
         try {
           recognition.start();
           console.log('[SA] start() aufgerufen');
@@ -570,7 +648,6 @@
       recognition = null;
     }
 
-    // === AUDIO-RESSOURCEN FREIGEBEN ===
     if (audioAnalysisId) {
       cancelAnimationFrame(audioAnalysisId);
       audioAnalysisId = null;
@@ -604,7 +681,10 @@
     micStatus.textContent = 'Klicke zum Starten';
 
     // === NEUE UI-ELEMENTE ZURÜCKSETZEN ===
+    volumeHistory = [];
     pitchHistory = [];
+    lastVolumeFBTime = 0;
+    lastToneFBTime = 0;
     pauseDurations = [];
     currentPauseDuration = 0;
     isInPause = false;
@@ -616,9 +696,13 @@
     tonalityDisplay.textContent = '—';
     tonalityIndicator.textContent = 'Monoton';
     tonalityIndicator.className = 'indicator tone-monotone';
+    tonalityFeedback.textContent = '—';
+    tonalityFeedback.className = 'feedback-text';
     loudnessBar.style.width = '0%';
     loudnessDisplay.textContent = '—';
     loudnessDisplay.className = 'metric-value small';
+    loudnessFeedback.textContent = '—';
+    loudnessFeedback.className = 'feedback-text';
   }
 
   // Event-Bindungen
@@ -632,7 +716,6 @@
 
   resetButton.addEventListener('click', resetSession);
 
-  // Initialisierung
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
     micStatus.textContent = 'Bitte Chrome/Edge verwenden';
@@ -643,7 +726,6 @@
     if (isRecording && recognition) {
       try { recognition.abort(); } catch (_) {}
     }
-    // Auch Audio-Ressourcen beim Schließen bereinigen
     if (audioAnalysisId) {
       cancelAnimationFrame(audioAnalysisId);
     }
@@ -655,6 +737,6 @@
     }
   });
 
-  console.log('[SA] Speech Analyst v9 – Unicode-Normalisierung für Füllwörter + Audio-Analyse');
+  console.log('[SA] Speech Analyst v11 – Zeitbasierter Moving Average (10s / 20s)');
 
 })();

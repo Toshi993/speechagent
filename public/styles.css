@@ -276,6 +276,23 @@ header h1 {
   transition: width 0.1s linear;
 }
 
+.feedback-text {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.3rem 0.5rem;
+  border-radius: 8px;
+  text-align: center;
+  background: #e2e8f0;
+  color: #4a5568;
+}
+.loudness-feedback-quiet { background: #fed7d7; color: #742a2a; }
+.loudness-feedback-normal { background: #c6f6d5; color: #22543d; }
+.loudness-feedback-loud { background: #feebc8; color: #744210; }
+.tone-feedback-monotone { background: #fed7d7; color: #742a2a; }
+.tone-feedback-varied { background: #c6f6d5; color: #22543d; }
+.tone-feedback-dynamic { background: #e9d8fd; color: #44337a; }
 .loudness-quiet { color: #718096; }
 .loudness-normal { color: #38a169; }
 .loudness-loud { color: #dd6b20; }
