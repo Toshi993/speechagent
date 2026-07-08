@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Speech Analyst – Sprechtempo & Füllwörter</title>
-  <link rel="stylesheet" href="/speechanalyst/styles.css" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="container">
@@ -48,6 +48,38 @@
         </div>
       </div>
 
+      <!-- Pausen-Analyse -->
+      <div class="analysis-card pause-card">
+        <span class="metric-label">Pausen-Analyse</span>
+        <div class="pause-metrics">
+          <div class="pause-metric">
+            <span class="metric-label">Aktuelle Pause</span>
+            <span id="currentPauseDisplay" class="metric-value small">0,0 s</span>
+          </div>
+          <div class="pause-metric">
+            <span class="metric-label">Durchschnitt</span>
+            <span id="averagePauseDisplay" class="metric-value small">0,0 s</span>
+          </div>
+        </div>
+        <span id="pauseClassDisplay" class="indicator">—</span>
+      </div>
+
+      <!-- Tonalitäts-Analyse -->
+      <div class="analysis-card">
+        <span class="metric-label">Tonalität</span>
+        <span id="tonalityDisplay" class="metric-value">—</span>
+        <span id="tonalityIndicator" class="indicator tone-monotone">Monoton</span>
+      </div>
+
+      <!-- Lautstärke-Analyse -->
+      <div class="analysis-card">
+        <span class="metric-label">Lautstärke</span>
+        <div class="loudness-meter">
+          <div id="loudnessBar" class="loudness-bar"></div>
+        </div>
+        <span id="loudnessDisplay" class="metric-value small">—</span>
+      </div>
+
       <!-- Transkript -->
       <div class="transcript-section">
         <h2>Transkript</h2>
@@ -59,6 +91,6 @@
     </main>
   </div>
 
-  <script src="/speechanalyst/app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

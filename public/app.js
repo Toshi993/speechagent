@@ -18,6 +18,15 @@
   var transcriptEl  = document.getElementById('transcript');
   var resetButton   = document.getElementById('resetButton');
 
+  // === NEUE DOM-Referenzen für Pausen-, Tonalitäts- und Lautstärke-Analyse ===
+  var currentPauseDisplay = document.getElementById('currentPauseDisplay');
+  var averagePauseDisplay = document.getElementById('averagePauseDisplay');
+  var pauseClassDisplay   = document.getElementById('pauseClassDisplay');
+  var tonalityDisplay     = document.getElementById('tonalityDisplay');
+  var tonalityIndicator   = document.getElementById('tonalityIndicator');
+  var loudnessBar         = document.getElementById('loudnessBar');
+  var loudnessDisplay     = document.getElementById('loudnessDisplay');
+
   // Konfiguration
   var FILLER_VARIANTS = {
     'ae': true, 'aeh': true, 'aehm': true, 'aehhm': true, 'aehhhm': true,
@@ -51,6 +60,31 @@
   var lastResultTime  = 0;
   var silenceTimer    = null;
   var restartTimeout  = null;
+
+  // === AUDIO-INFRASTRUKTUR (für Pausen-, Tonalitäts- und Lautstärke-Analyse) ===
+  var audioContext     = null;
+  var analyser         = null;
+  var micStream        = null;
+  var audioAnalysisId  = null;
+  var timeDomainData   = null;
+
+  // === PAUSEN-ANALYSE – Zustand ===
+  var PAUSE_RMS_THRESHOLD   = 0.015;
+  var PAUSE_MIN_DURATION_MS = 300;
+  var isInPause           = false;
+  var pauseStartTime      = 0;
+  var pauseDurations      = [];
+  var currentPauseDuration = 0;
+
+  // === TONALITÄTS-ANALYSE – Zustand ===
+  var TONE_HISTORY_SIZE        = 30;
+  var TONE_VARIANCE_THRESHOLD  = 50;
+  var TONE_TREND_THRESHOLD     = 20;
+  var pitchHistory            = [];
+
+  // === LAUTSTÄRKE-ANALYSE – Zustand ===
+  var LOUDNESS_QUIET_MAX = 0.02;
+  var LOUDNESS_LOUD_MIN  = 0.10;
 
   // SpeechRecognition Factory
   function createRecognition() {
@@ -286,6 +320,165 @@
     feedbackDisp.className = 'metric-value feedback ' + feedbackClass;
   }
 
+  // ============================================================
+  // === LAUTSTÄRKE-ANALYSE (RMS berechnen) ===
+  // ============================================================
+  function calculateRMS(timeDomainData) {
+    var sum = 0;
+    for (var i = 0; i < timeDomainData.length; i++) {
+      sum += timeDomainData[i] * timeDomainData[i];
+    }
+    return Math.sqrt(sum / timeDomainData.length);
+  }
+
+  function classifyLoudness(rms) {
+    if (rms < LOUDNESS_QUIET_MAX) {
+      return { label: 'Leise', className: 'loudness-quiet', percent: Math.min(rms / LOUDNESS_QUIET_MAX * 33, 33) };
+    }
+    if (rms <= LOUDNESS_LOUD_MIN) {
+      return { label: 'Normal', className: 'loudness-normal', percent: 33 + (rms - LOUDNESS_QUIET_MAX) / (LOUDNESS_LOUD_MIN - LOUDNESS_QUIET_MAX) * 34 };
+    }
+    return { label: 'Laut', className: 'loudness-loud', percent: Math.min(67 + (rms - LOUDNESS_LOUD_MIN) / 0.20 * 33, 100) };
+  }
+
+  function updateLoudnessUI(rms) {
+    var cls = classifyLoudness(rms);
+    loudnessBar.style.width = cls.percent + '%';
+    loudnessDisplay.textContent = cls.label;
+    loudnessDisplay.className = 'metric-value small ' + cls.className;
+  }
+
+  // ============================================================
+  // === PAUSEN-ANALYSE ===
+  // ============================================================
+  function detectPause(rms, now) {
+    if (rms < PAUSE_RMS_THRESHOLD) {
+      // Stille erkannt
+      if (!isInPause) {
+        isInPause = true;
+        pauseStartTime = now;
+      }
+      currentPauseDuration = (now - pauseStartTime) / 1000;
+    } else {
+      // Sprache erkannt – Pause beendet
+      if (isInPause) {
+        var durationSec = (now - pauseStartTime) / 1000;
+        if (durationSec >= PAUSE_MIN_DURATION_MS / 1000) {
+          pauseDurations.push(durationSec);
+        }
+        isInPause = false;
+        currentPauseDuration = 0;
+      }
+    }
+  }
+
+  function classifyPause(durationSec) {
+    if (durationSec < 1.0) return { label: 'Kurz', className: 'short' };
+    if (durationSec <= 3.0) return { label: 'Mittel', className: 'medium' };
+    return { label: 'Lang', className: 'long' };
+  }
+
+  function updatePauseUI() {
+    var avg = pauseDurations.length > 0
+      ? pauseDurations.reduce(function(a, b) { return a + b; }, 0) / pauseDurations.length
+      : 0;
+    currentPauseDisplay.textContent = currentPauseDuration.toFixed(1).replace('.', ',') + ' s';
+    averagePauseDisplay.textContent = avg.toFixed(1).replace('.', ',') + ' s';
+    var cls = classifyPause(currentPauseDuration);
+    pauseClassDisplay.textContent = isInPause ? cls.label : '—';
+    pauseClassDisplay.className = 'indicator ' + (isInPause ? cls.className : '');
+  }
+
+  // ============================================================
+  // === TONALITÄTS-ANALYSE (Pitch via Autokorrelation) ===
+  // ============================================================
+  function estimatePitch(timeDomainData, sampleRate) {
+    var buflen = timeDomainData.length;
+    var bestOffset = -1;
+    var bestCorr = 0;
+    var rms = 0;
+    for (var i = 0; i < buflen; i++) rms += timeDomainData[i] * timeDomainData[i];
+    rms = Math.sqrt(rms / buflen);
+    if (rms < 0.01) return 0; // zu leise, kein Ton erkennbar
+
+    var maxOffset = Math.floor(sampleRate / 80);  // tiefste Frequenz ~80 Hz
+    var minOffset = Math.floor(sampleRate / 400); // höchste Frequenz ~400 Hz
+    for (var offset = minOffset; offset <= maxOffset; offset++) {
+      var corr = 0;
+      for (var i = 0; i < buflen - offset; i++) {
+        corr += timeDomainData[i] * timeDomainData[i + offset];
+      }
+      if (corr > bestCorr) { bestCorr = corr; bestOffset = offset; }
+    }
+    return bestOffset > 0 ? sampleRate / bestOffset : 0;
+  }
+
+  function updateTonality(pitchHz) {
+    if (pitchHz > 0) pitchHistory.push(pitchHz);
+    if (pitchHistory.length > TONE_HISTORY_SIZE) pitchHistory.shift();
+    if (pitchHistory.length < 5) {
+      tonalityDisplay.textContent = '—';
+      tonalityIndicator.textContent = 'Unbekannt';
+      tonalityIndicator.className = 'indicator';
+      return;
+    }
+    var avg = pitchHistory.reduce(function(a, b) { return a + b; }, 0) / pitchHistory.length;
+    var variance = pitchHistory.reduce(function(sum, p) { return sum + Math.pow(p - avg, 2); }, 0) / pitchHistory.length;
+    var half = Math.floor(pitchHistory.length / 2);
+    var first = pitchHistory.slice(0, half);
+    var second = pitchHistory.slice(half);
+    var avg1 = first.reduce(function(a, b) { return a + b; }, 0) / first.length;
+    var avg2 = second.reduce(function(a, b) { return a + b; }, 0) / second.length;
+
+    var label, className;
+    if (variance < TONE_VARIANCE_THRESHOLD) {
+      label = 'Monoton'; className = 'tone-monotone';
+    } else if (avg2 - avg1 > TONE_TREND_THRESHOLD) {
+      label = 'Steigend'; className = 'tone-rising';
+    } else if (avg1 - avg2 > TONE_TREND_THRESHOLD) {
+      label = 'Fallend'; className = 'tone-falling';
+    } else {
+      label = 'Variiert'; className = 'tone-varied';
+    }
+    tonalityDisplay.textContent = Math.round(avg) + ' Hz';
+    tonalityIndicator.textContent = label;
+    tonalityIndicator.className = 'indicator ' + className;
+  }
+
+  // ============================================================
+  // === AUDIO-INFRASTRUKTUR – Analyse-Loop ===
+  // ============================================================
+  function initAudioContext(stream) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.8;
+    timeDomainData = new Float32Array(analyser.fftSize);
+    var source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    // Nicht mit destination verbinden – verhindert Rückkopplung
+  }
+
+  function runAudioAnalysis() {
+    if (!isRecording || !analyser) return;
+    analyser.getFloatTimeDomainData(timeDomainData);
+    var rms = calculateRMS(timeDomainData);
+    var now = Date.now();
+
+    // Pausen-Analyse
+    detectPause(rms, now);
+    updatePauseUI();
+
+    // Tonalitäts-Analyse
+    var pitch = estimatePitch(timeDomainData, audioContext.sampleRate);
+    updateTonality(pitch);
+
+    // Lautstärke-Analyse
+    updateLoudnessUI(rms);
+
+    audioAnalysisId = requestAnimationFrame(runAudioAnalysis);
+  }
+
   // Aufnahme-Steuerung
   function startRecording() {
     if (recognition) {
@@ -322,15 +515,31 @@
     if (silenceTimer) clearInterval(silenceTimer);
     silenceTimer = setInterval(checkSilence, 5000);
 
-    try {
-      recognition.start();
-      console.log('[SA] start() aufgerufen');
-    } catch (e) {
-      console.warn('[SA] start() fehlgeschlagen:', e.message);
-      recognition = null;
-      micStatus.textContent = 'Start fehlgeschlagen';
-      isRecording = false;
-    }
+    // === AUDIO-INFRASTRUKTUR STARTEN (gleicher Mikrofon-Zugriff) ===
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(function(stream) {
+        micStream = stream;
+        initAudioContext(stream);
+        runAudioAnalysis();
+
+        // Spracherkennung starten (nachdem Mikrofon-Zugriff gewährt wurde)
+        try {
+          recognition.start();
+          console.log('[SA] start() aufgerufen');
+        } catch (e) {
+          console.warn('[SA] start() fehlgeschlagen:', e.message);
+          recognition = null;
+          micStatus.textContent = 'Start fehlgeschlagen';
+          isRecording = false;
+        }
+      })
+      .catch(function(err) {
+        console.warn('[SA] getUserMedia fehlgeschlagen:', err.message);
+        micStatus.textContent = 'Mikrofon-Zugriff verweigert';
+        isRecording = false;
+        micButton.classList.remove('recording');
+        recognition = null;
+      });
   }
 
   function stopRecording() {
@@ -360,6 +569,21 @@
       } catch (e) {}
       recognition = null;
     }
+
+    // === AUDIO-RESSOURCEN FREIGEBEN ===
+    if (audioAnalysisId) {
+      cancelAnimationFrame(audioAnalysisId);
+      audioAnalysisId = null;
+    }
+    if (audioContext && audioContext.state !== 'closed') {
+      audioContext.close().catch(function() {});
+      audioContext = null;
+    }
+    if (micStream) {
+      micStream.getTracks().forEach(function(track) { track.stop(); });
+      micStream = null;
+    }
+    analyser = null;
   }
 
   function resetSession() {
@@ -378,6 +602,23 @@
     fillerWarning.classList.add('hidden');
     transcriptEl.textContent = '...';
     micStatus.textContent = 'Klicke zum Starten';
+
+    // === NEUE UI-ELEMENTE ZURÜCKSETZEN ===
+    pitchHistory = [];
+    pauseDurations = [];
+    currentPauseDuration = 0;
+    isInPause = false;
+    pauseStartTime = 0;
+    currentPauseDisplay.textContent = '0,0 s';
+    averagePauseDisplay.textContent = '0,0 s';
+    pauseClassDisplay.textContent = '—';
+    pauseClassDisplay.className = 'indicator';
+    tonalityDisplay.textContent = '—';
+    tonalityIndicator.textContent = 'Monoton';
+    tonalityIndicator.className = 'indicator tone-monotone';
+    loudnessBar.style.width = '0%';
+    loudnessDisplay.textContent = '—';
+    loudnessDisplay.className = 'metric-value small';
   }
 
   // Event-Bindungen
@@ -402,8 +643,18 @@
     if (isRecording && recognition) {
       try { recognition.abort(); } catch (_) {}
     }
+    // Auch Audio-Ressourcen beim Schließen bereinigen
+    if (audioAnalysisId) {
+      cancelAnimationFrame(audioAnalysisId);
+    }
+    if (audioContext && audioContext.state !== 'closed') {
+      audioContext.close().catch(function() {});
+    }
+    if (micStream) {
+      micStream.getTracks().forEach(function(track) { track.stop(); });
+    }
   });
 
-  console.log('[SA] Speech Analyst v9 – Unicode-Normalisierung für Füllwörter');
+  console.log('[SA] Speech Analyst v9 – Unicode-Normalisierung für Füllwörter + Audio-Analyse');
 
 })();
