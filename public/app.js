@@ -1,9 +1,10 @@
 /* ============================================
-   Speech Analyst – app.js v11
+   Speech Analyst – app.js v12
    Echtzeit-Sprachanalyse via Web Speech API
    - Füllwort-Erkennung: Unicode-Normalisierung
    - Zeitbasierter Moving Average (10s / 20s)
    - Text-Feedback in deutscher Sprache
+   - Pitch-Glättung: Median-Filter + Delta-Limit + 190 Hz Cap
    ============================================ */
 
 (function() {
@@ -30,6 +31,8 @@
   var loudnessDisplay     = document.getElementById('loudnessDisplay');
   var loudnessFeedback    = document.getElementById('loudnessFeedback');
   var tonalityFeedback    = document.getElementById('tonalityFeedback');
+  var pitchCanvas         = document.getElementById('pitchGraph');
+  var pitchCtx            = pitchCanvas ? pitchCanvas.getContext('2d') : null;
 
   // Konfiguration
   var FILLER_VARIANTS = {
@@ -82,16 +85,12 @@
 
   // === ZEITBASIERTER GLEITENDER MITTELWERT (Moving Average) – Zustand ===
   var VOLUME_WINDOW_MS  = 10000;   // 10 Sekunden für Lautstärke
-  var PITCH_WINDOW_MS   = 20000;   // 20 Sekunden für Tonalität
+  var PITCH_WINDOW_MS   = 10000;   // 10 Sekunden für Tonalität
   var volumeHistory     = [];      // Array von { value, ts }
   var pitchHistory      = [];      // Array von { value, ts }
   var lastVolumeFBTime  = 0;       // für träges Text-Feedback
   var lastToneFBTime    = 0;
   var FEEDBACK_INTERVAL = 500;     // Text-Feedback max. alle 500ms aktualisieren
-
-  // === TONALITÄTS-ANALYSE – Schwellen für Varianz-Feedback ===
-  var TONE_STD_MONOTONE_MAX = 15;
-  var TONE_STD_VARIED_MAX   = 45;
 
   // === LAUTSTÄRKE-ANALYSE – Zustand ===
   var LOUDNESS_QUIET_MAX = 0.02;
@@ -358,6 +357,17 @@
     return sum / arr.length;
   }
 
+  function removeOutliers(arr) {
+    if (arr.length < 4) return arr;
+    var sorted = arr.slice().sort(function(a, b) { return a - b; });
+    var q1 = sorted[Math.floor(sorted.length * 0.25)];
+    var q3 = sorted[Math.floor(sorted.length * 0.75)];
+   var iqr = q3 - q1;
+   var lower = q1 - 1.5 * iqr;
+   var upper = q3 + 1.5 * iqr;
+   return arr.filter(function(v) { return v >= lower && v <= upper; });
+  }
+
   function calcStdDev(arr) {
     if (arr.length < 2) return 0;
     var avg = calcMovingAverage(arr);
@@ -439,78 +449,266 @@
   // ============================================================
   function estimatePitch(timeDomainData, sampleRate) {
     var buflen = timeDomainData.length;
-    var bestOffset = -1;
-    var bestCorr = 0;
     var rms = 0;
     for (var i = 0; i < buflen; i++) rms += timeDomainData[i] * timeDomainData[i];
     rms = Math.sqrt(rms / buflen);
-    if (rms < 0.01) return 0;
+    if (rms < 0.015) return 0;
 
     var maxOffset = Math.floor(sampleRate / 80);
     var minOffset = Math.floor(sampleRate / 400);
+    var bestOffset = -1;
+    var bestNSDF = -1;
+
     for (var offset = minOffset; offset <= maxOffset; offset++) {
-      var corr = 0;
+      var num = 0, denom = 0;
       for (var i = 0; i < buflen - offset; i++) {
-        corr += timeDomainData[i] * timeDomainData[i + offset];
+        num   += timeDomainData[i] * timeDomainData[i + offset];
+        denom += timeDomainData[i] * timeDomainData[i] 
+              + timeDomainData[i + offset] * timeDomainData[i + offset];
       }
-      if (corr > bestCorr) { bestCorr = corr; bestOffset = offset; }
+      var nsdf = denom > 0 ? 2 * num / denom : 0;
+      if (nsdf > bestNSDF) { bestNSDF = nsdf; bestOffset = offset; }
     }
-    return bestOffset > 0 ? sampleRate / bestOffset : 0;
+
+    // Qualitätsschwelle: NSDF muss > 0.4 sein (0 = keine Korrelation, 1 = perfekt)
+    if (bestOffset <= 0 || bestNSDF < 0.4) return 0;
+
+    var pitch = sampleRate / bestOffset;
+    if (pitch > 300 || pitch < 80) return 0;  // Menschliche Sprechstimme
+    return pitch;
   }
 
+  // Hilfsfunktion: Filtert Pitch-Werte ≤ 40 Hz (Pausen, Rauschen) heraus
+  function filterValidPitchValues(arr) {
+    var valid = [];
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i] > 40) {
+        valid.push(arr[i]);
+      }
+    }
+    return valid;
+  }
+
+  function classifyTonalitySpan(stdDev) {
+    if (stdDev < 6) {
+      return { label: 'Monoton', className: 'tone-feedback-monotone' };
+    } else if (stdDev <= 18) {
+      return { label: 'Sehr gut und variabel', className: 'tone-feedback-varied' };
+    } else {
+      return { label: 'Etwas zu hektisch', className: 'tone-feedback-dynamic' };
+    }
+  }
+
+  function drawPitchGraph() {
+    if (!pitchCtx || !pitchCanvas) return;
+    var ctx = pitchCtx;
+    var w = pitchCanvas.width;
+    var h = pitchCanvas.height;
+    var values = extractValues(pitchHistory);
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Hintergrund
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, w, h);
+
+    if (values.length < 2) {
+      // Platzhalter-Text
+      ctx.fillStyle = '#4a5568';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Pitch-Kurve', w / 2, h / 2 + 4);
+      return;
+    }
+
+    // Nur valide Werte für den dynamischen Bereich verwenden (> 40 Hz)
+    var validValues = filterValidPitchValues(values);
+    var minVal, maxVal;
+    if (validValues.length >= 2) {
+      minVal = validValues[0];
+      maxVal = validValues[0];
+      for (var i = 1; i < validValues.length; i++) {
+        if (validValues[i] < minVal) minVal = validValues[i];
+        if (validValues[i] > maxVal) maxVal = validValues[i];
+      }
+    } else {
+      // Fallback, wenn keine validen Werte: Standardbereich 80-200 Hz
+      minVal = 80;
+      maxVal = 200;
+    }
+    var range = maxVal - minVal;
+    if (range < 20) {
+      // Mindestens 20 Hz Spanne für die visuelle Darstellung
+      var mid = (maxVal + minVal) / 2;
+      minVal = mid - 10;
+      maxVal = mid + 10;
+      range = 20;
+    }
+    if (range === 0) range = 20;
+
+    // Gitterlinien
+    ctx.strokeStyle = '#2d3748';
+    ctx.lineWidth = 0.5;
+    for (var y = 0; y < h; y += 20) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    // Pitch-Kurve zeichnen (von rechts nach links – neueste Werte rechts)
+    var maxPoints = w; // Maximal so viele Pixel wie Canvas breit
+    var step = Math.max(1, Math.floor(values.length / maxPoints));
+    var displayVals = [];
+    for (var i = 0; i < values.length; i += step) {
+      displayVals.push(values[i]);
+    }
+    // Sicherstellen, dass der letzte Wert enthalten ist
+    if (displayVals[displayVals.length - 1] !== values[values.length - 1]) {
+      displayVals.push(values[values.length - 1]);
+    }
+
+    ctx.strokeStyle = '#667eea';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    var pathStarted = false;
+
+    for (var i = 0; i < displayVals.length; i++) {
+      var val = displayVals[i];
+      // Ungültige Werte (≤ 40 Hz) überspringen -> Linie unterbrechen
+      if (val <= 40) {
+        pathStarted = false;
+        continue;
+      }
+      var x = (i / (displayVals.length - 1)) * w;
+      var y = h - ((val - minVal) / range) * (h - 20) - 10;
+      if (!pathStarted) {
+        ctx.moveTo(x, y);
+        pathStarted = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
+
+    // Aktuellen validen Wert (letzten) als Punkt hervorheben
+    var lastValidVal = 0;
+    var lastValidIdx = -1;
+    for (var i = values.length - 1; i >= 0; i--) {
+      if (values[i] > 40) {
+        lastValidVal = values[i];
+        lastValidIdx = i;
+        break;
+      }
+    }
+    if (lastValidIdx >= 0) {
+      var lastX = w;
+      var lastY = h - ((lastValidVal - minVal) / range) * (h - 20) - 10;
+      ctx.fillStyle = '#e53e3e';
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Beschriftung: Min/Max Werte (basierend auf validen Werten)
+    ctx.fillStyle = '#718096';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(Math.round(minVal) + ' Hz', 4, h - 4);
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(maxVal) + ' Hz', w - 4, 12);
+  }
+
+  // Zustand für Delta-Limit (Sprung-Filter)
+  var pitchEMA = 0;
+  var EMA_ALPHA = 0.15;  // 0.1 = sehr träge, 0.3 = reaktiver
+
   function updateTonality(pitchHz, now) {
-    // Pitch-Wert mit Timestamp ins Array einfügen
+    // Delta-Limit: Maximal 15 Hz Änderung pro Frame vom letzten gültigen Wert
     if (pitchHz > 0) {
-      pitchHistory.push({ value: pitchHz, ts: now });
+      if (pitchEMA === 0) {
+        pitchEMA = pitchHz;  // Initialisierung
+      } else {
+        pitchEMA = EMA_ALPHA * pitchHz + (1 - EMA_ALPHA) * pitchEMA;
+      }
+      pitchHistory.push({ value: pitchEMA, ts: now });
     }
 
     // Alte Werte löschen (älter als PITCH_WINDOW_MS)
     pruneByAge(pitchHistory, PITCH_WINDOW_MS, now);
-
+    if (pitchHistory.length < 1) {
+      drawPitchGraph();
+      return;
+    }
+    // Mindestens 3 Sekunden valide Sprachdaten nötig
+    var oldestTs = pitchHistory[0].ts;
+    if (now - oldestTs < 3000) {
+      drawPitchGraph();
+      return;
+    }
     if (pitchHistory.length < 5) {
       tonalityDisplay.textContent = '—';
       tonalityIndicator.textContent = 'Unbekannt';
       tonalityIndicator.className = 'indicator';
       tonalityFeedback.textContent = '—';
       tonalityFeedback.className = 'feedback-text';
+      drawPitchGraph();
       return;
     }
 
     var values = extractValues(pitchHistory);
-    var smoothedAvg = calcMovingAverage(values);
-    var stdDev      = calcStdDev(values);
+    var validValues = filterValidPitchValues(values);
+
+    // Wenn nach Filterung keine validen Werte übrig sind: Pause / Stille
+    if (validValues.length < 2) {
+      tonalityDisplay.textContent = '—';
+      tonalityIndicator.textContent = 'Pause / Keine Sprache';
+      tonalityIndicator.className = 'indicator';
+      // Text-Feedback nicht überschreiben, bleibt auf letztem bekannten Zustand
+      drawPitchGraph();
+      return;
+    }
+
+    var smoothedAvg = calcMovingAverage(validValues);
+
+    var CLASSIFY_WINDOW_MS = 4000;
+    var recentHistory = pitchHistory.filter(function(p) {
+    return p.ts >= now - CLASSIFY_WINDOW_MS;
+    });
+
+    var recentValues = filterValidPitchValues(extractValues(recentHistory));
+    recentValues = removeOutliers(recentValues);  // ← NEU: Ausreißer entfernen
+    if (recentValues.length < 5) {
+      drawPitchGraph();
+      return;
+    }
+
+    var stdDev = calcStdDev(recentValues);
+    var fb = classifyTonalitySpan(stdDev);
 
     // Tonhöhe (geglättet) anzeigen
     tonalityDisplay.textContent = Math.round(smoothedAvg) + ' Hz';
 
-    // === Text-Feedback für Tonvarianz (träge aktualisiert) ===
+    // === Text-Feedback basierend auf Standardabweichung der Trend-Linie ===
     if (now - lastToneFBTime >= FEEDBACK_INTERVAL) {
       lastToneFBTime = now;
-      var varianceLabel, varianceClass;
-      if (stdDev < TONE_STD_MONOTONE_MAX) {
-        varianceLabel = 'Zu monoton';
-        varianceClass = 'tone-feedback-monotone';
-      } else if (stdDev < TONE_STD_VARIED_MAX) {
-        varianceLabel = 'Gute Tonvarianz';
-        varianceClass = 'tone-feedback-varied';
-      } else {
-        varianceLabel = 'Sehr dynamisch';
-        varianceClass = 'tone-feedback-dynamic';
-      }
-      tonalityFeedback.textContent = varianceLabel;
-      tonalityFeedback.className = 'feedback-text ' + varianceClass;
+      var fb = classifyTonalitySpan(stdDev);
+      tonalityFeedback.textContent = fb.label;
+      tonalityFeedback.className = 'feedback-text ' + fb.className;
     }
 
     // Bestehenden Indikator (Monoton/Steigend/Fallend/Variiert) beibehalten
     var label, className;
-    if (stdDev < TONE_STD_MONOTONE_MAX) {
+    if (stdDev < 6) {
       label = 'Monoton'; className = 'tone-monotone';
     } else {
-      var half = Math.floor(values.length / 2);
+      var half = Math.floor(validValues.length / 2);
       if (half < 2) { label = 'Variiert'; className = 'tone-varied'; }
       else {
-        var first = values.slice(0, half);
-        var second = values.slice(half);
+        var first = validValues.slice(0, half);
+        var second = validValues.slice(half);
         var avg1 = calcMovingAverage(first);
         var avg2 = calcMovingAverage(second);
         var diff = avg2 - avg1;
@@ -521,6 +719,9 @@
     }
     tonalityIndicator.textContent = label;
     tonalityIndicator.className = 'indicator ' + className;
+
+    // Pitch-Graph zeichnen
+    drawPitchGraph();
   }
 
   // ============================================================
@@ -529,8 +730,8 @@
   function initAudioContext(stream) {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     analyser = audioContext.createAnalyser();
-    analyser.fftSize = 2048;
-    analyser.smoothingTimeConstant = 0.8;
+    analyser.fftSize = 8192;
+    analyser.smoothingTimeConstant = 0.0;
     timeDomainData = new Float32Array(analyser.fftSize);
     var source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
@@ -575,6 +776,8 @@
     recognition.onerror  = onError;
 
     isRecording = true;
+    
+    pitchEMA = 0;
     fullTranscript = '';
     wordCount   = 0;
     fillerCount = 0;
@@ -612,8 +815,20 @@
         }
       })
       .catch(function(err) {
-        console.warn('[SA] getUserMedia fehlgeschlagen:', err.message);
-        micStatus.textContent = 'Mikrofon-Zugriff verweigert';
+        console.warn('[SA] getUserMedia fehlgeschlagen:', err.name, err.message);
+        if (err.name === 'NotAllowedError') {
+          if (!window.isSecureContext) {
+            micStatus.textContent = 'Bitte über localhost oder HTTPS öffnen (kein file://)';
+          } else {
+            micStatus.textContent = 'Mikrofon-Zugriff verweigert – Berechtigung in den Browser-Einstellungen erlauben';
+          }
+        } else if (err.name === 'NotFoundError') {
+          micStatus.textContent = 'Kein Mikrofon gefunden';
+        } else if (err.name === 'NotReadableError') {
+          micStatus.textContent = 'Mikrofon wird von anderer App verwendet';
+        } else {
+          micStatus.textContent = 'Mikrofon-Zugriff verweigert';
+        }
         isRecording = false;
         micButton.classList.remove('recording');
         recognition = null;
@@ -670,6 +885,7 @@
     wordCount   = 0;
     fillerCount = 0;
     sessionStart = null;
+    pitchEMA = 0;
 
     wpmDisplay.textContent = '0';
     feedbackDisp.textContent = '\u2014';
@@ -698,6 +914,16 @@
     tonalityIndicator.className = 'indicator tone-monotone';
     tonalityFeedback.textContent = '—';
     tonalityFeedback.className = 'feedback-text';
+    // Canvas leeren
+    if (pitchCtx && pitchCanvas) {
+      pitchCtx.clearRect(0, 0, pitchCanvas.width, pitchCanvas.height);
+      pitchCtx.fillStyle = '#1a1a2e';
+      pitchCtx.fillRect(0, 0, pitchCanvas.width, pitchCanvas.height);
+      pitchCtx.fillStyle = '#4a5568';
+      pitchCtx.font = '12px sans-serif';
+      pitchCtx.textAlign = 'center';
+      pitchCtx.fillText('Pitch-Kurve', pitchCanvas.width / 2, pitchCanvas.height / 2 + 4);
+    }
     loudnessBar.style.width = '0%';
     loudnessDisplay.textContent = '—';
     loudnessDisplay.className = 'metric-value small';
@@ -715,6 +941,12 @@
   });
 
   resetButton.addEventListener('click', resetSession);
+
+  // Secure-Context-Prüfung: getUserMedia & SpeechRecognition benötigen HTTPS oder localhost
+  if (!window.isSecureContext) {
+    micStatus.textContent = 'Bitte über localhost oder HTTPS öffnen (kein file://)';
+    micButton.disabled = true;
+  }
 
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -737,6 +969,6 @@
     }
   });
 
-  console.log('[SA] Speech Analyst v11 – Zeitbasierter Moving Average (10s / 20s)');
+  console.log('[SA] Speech Analyst v12 – Pitch-Glättung: Median-Filter + Delta-Limit 15 Hz + Cap 190 Hz');
 
 })();

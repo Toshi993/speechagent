@@ -297,6 +297,21 @@ header h1 {
 .loudness-normal { color: #38a169; }
 .loudness-loud { color: #dd6b20; }
 
+/* === Pitch-Graph (Canvas) === */
+.pitch-graph-container {
+  margin-top: 0.75rem;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1a1a2e;
+}
+
+#pitchGraph {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #1a1a2e;
+}
+
 /* === Responsive === */
 @media (max-width: 480px) {
   .container {
