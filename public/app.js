@@ -20,6 +20,7 @@
   var fillerWarning = document.getElementById('fillerWarning');
   var transcriptEl  = document.getElementById('transcript');
   var resetButton   = document.getElementById('resetButton');
+  var 123
 
   // === NEUE DOM-Referenzen für Pausen-, Tonalitäts- und Lautstärke-Analyse ===
   var currentPauseDisplay = document.getElementById('currentPauseDisplay');
