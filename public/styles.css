@@ -679,13 +679,14 @@ body {
 /* === Filler-Warnung === */
 .warning {
   margin-top: 0.75rem;
-  padding: 0.6rem 0.75rem;
-  background: rgba(239, 68, 68, 0.15);
+  padding: 0;
+  background: none;
   color: var(--color-danger);
   border-radius: 10px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 1.4rem;
+  font-weight: 700;
   text-align: center;
+  line-height: 1.3;
   transition: opacity var(--transition-fast);
 }
 
@@ -696,21 +697,20 @@ body {
 /* === Tonalität Indikatoren (wird von JS gesetzt) === */
 .indicator {
   display: inline-block;
-  margin-top: 0.5rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  margin-top: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  text-align: center;
 }
 
 .indicator.short { background: rgba(16, 185, 129, 0.2); color: var(--color-success); }
 .indicator.medium { background: rgba(245, 158, 11, 0.2); color: var(--color-warning); }
 .indicator.long { background: rgba(239, 68, 68, 0.2); color: var(--color-danger); }
 
-.tone-monotone { background: rgba(239, 68, 68, 0.2); color: var(--color-danger); }
-.tone-varied { background: rgba(16, 185, 129, 0.2); color: var(--color-success); }
-.tone-rising { background: rgba(59, 130, 246, 0.2); color: var(--color-primary); }
-.tone-falling { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; }
+.tone-monotone { background: none; color: var(--color-danger); }
+.tone-varied { background: none; color: var(--color-success); }
+.tone-rising { background: none; color: var(--color-primary); }
+.tone-falling { background: none; color: #8b5cf6; }
 
 /* Alte Analyse-Karten-Klassen (für JS-Kompatibilität) */
 .analysis-card {
@@ -760,16 +760,16 @@ body {
   color: var(--text-secondary);
 }
 
-.loudness-feedback-quiet { background: rgba(239, 68, 68, 0.15); color: var(--color-danger); }
-.loudness-feedback-normal { background: rgba(16, 185, 129, 0.15); color: var(--color-success); }
-.loudness-feedback-loud { background: rgba(245, 158, 11, 0.15); color: var(--color-warning); }
-.tone-feedback-monotone { background: rgba(239, 68, 68, 0.15); color: var(--color-danger); }
-.tone-feedback-varied { background: rgba(16, 185, 129, 0.15); color: var(--color-success); }
-.tone-feedback-dynamic { background: rgba(139, 92, 246, 0.15); color: #8b5cf6; }
+.loudness-feedback-quiet { background: none); color: var(--color-danger); }
+.loudness-feedback-normal { background: none); color: var(--color-success); }
+.loudness-feedback-loud { background: none); color: var(--color-warning); }
+.tone-feedback-monotone { background: none; color: var(--color-danger); }
+.tone-feedback-varied { background: none; color: var(--color-success); }
+.tone-feedback-dynamic { background: none; color: #8b5cf6; }
 
-.loudness-quiet { color: var(--text-muted); }
-.loudness-normal { color: var(--color-success); }
-.loudness-loud { color: var(--color-warning); }
+.loudness-quiet { color: var(--text-muted); font-weight:700; }
+.loudness-normal { color: var(--color-success);font-weight:700; }
+.loudness-loud { color: var(--color-warning); font-weight:700; }
 
 /* === Pitch-Graph Canvas (für JS-Kompatibilität) === */
 .pitch-graph-container {
