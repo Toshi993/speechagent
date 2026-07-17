@@ -1,3 +1,27 @@
+/* ============================================
+   Speech Analyst Pro – Stylesheet
+   ============================================ */
+
+/* === CSS-Variablen (Farbpalette) === */
+:root {
+  --bg-app: #0f172a;
+  --bg-card: #1e293b;
+  --border-card: #334155;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --color-primary: #3b82f6;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-primary-glow: rgba(59, 130, 246, 0.3);
+  --radius-card: 16px;
+  --radius-sm: 10px;
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.25);
+  --transition-fast: 0.2s ease;
+  --transition-med: 0.3s ease;
+}
+
 /* === Reset & Basics === */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -8,64 +32,408 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
     Ubuntu, Cantarell, sans-serif;
-  background: #f5f7fa;
-  color: #1a1a2e;
+  background: var(--bg-app);
+  color: var(--text-primary);
   min-height: 100vh;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 2rem 1rem;
+  padding: 1.5rem 1rem;
 }
 
-.container {
+/* === App Container === */
+.app-container {
   width: 100%;
-  max-width: 600px;
-  background: #ffffff;
-  border-radius: 24px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-  padding: 2rem;
+  max-width: 1200px;
+  position: relative;
 }
 
 /* === Header === */
-header {
-  text-align: center;
-  margin-bottom: 2rem;
+.app-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  position: relative;
 }
 
-header h1 {
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  justify-content: center;
+  position: relative;
+}
+
+.settings-btn {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.4rem;
+  border-radius: 8px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-btn:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.app-title {
   font-size: 1.8rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .subtitle {
-  color: #718096;
-  font-size: 0.95rem;
-  margin-top: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: 0.2rem;
 }
 
-/* === Mikrofon-Button === */
-.mic-button {
+/* === Settings Dropdown === */
+.settings-dropdown {
+  position: absolute;
+  top: 3.5rem;
+  left: 0.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.25rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  min-width: 200px;
+}
+
+.settings-dropdown.hidden {
+  display: none;
+}
+
+.dropdown-arrow {
+  position: absolute;
+  top: -6px;
+  left: 20px;
+  width: 12px;
+  height: 12px;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-card);
+  border-top: 1px solid var(--border-card);
+  transform: rotate(45deg);
+}
+
+.dropdown-label {
   display: block;
-  margin: 0 auto 1rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.mode-toggle-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-card);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mode-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--text-primary);
+}
+
+.mode-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #ffffff;
+}
+
+/* === Dashboard Grid === */
+.dashboard {
+  display: grid;
+  gap: 1rem;
+}
+
+/* === Cards === */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-card);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  transition: border-color var(--transition-med);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.card-icon {
+  font-size: 1.1rem;
+  color: var(--color-primary);
+}
+
+.card-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+  gap: 0.25rem;
+}
+
+.card-value {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.card-unit {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.card-emotion {
+  font-size: 1.4rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.card-emotion.success {
+  color: var(--color-success);
+}
+
+.card-emotion.danger {
+  color: var(--color-danger);
+}
+
+.card-emotion.warning {
+  color: var(--color-warning);
+}
+
+.card-footer {
+  margin-top: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border-card);
+  text-align: center;
+}
+
+.feedback-banner {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.feedback-banner.warning {
+  color: var(--color-warning);
+}
+
+/* === Modus-Steuerung === */
+.mode-standard .expert-content {
+  display: none;
+}
+
+.mode-standard .expert-only {
+  display: none;
+}
+
+.mode-expert .standard-content {
+  display: none;
+}
+
+.mode-standard .expert-only-footer {
+  display: none;
+}
+
+/* === Kachel 1: Speed === */
+.card-speed .card-value {
+  color: var(--color-primary);
+}
+
+/* === Kachel 2: Filler === */
+.card-filler .card-value {
+  color: var(--color-danger);
+}
+
+/* === Kachel 3: Tonality === */
+.pitch-chart-wrapper {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.pitch-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: #0f172a;
+}
+
+.chart-line {
+  stroke: #3b82f6;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.pitch-labels {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 520px;
+  margin: 0.25rem auto 0;
+}
+
+.pitch-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* === Kachel 4: Lautstärke === */
+.loudness-scale {
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.loudness-track {
+  height: 14px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #10b981 0%, #f59e0b 50%, #ef4444 100%);
+  position: relative;
+  margin-bottom: 0.4rem;
+}
+
+.loudness-needle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 20px;
+  background: #ffffff;
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+  transition: left 0.15s linear;
+}
+
+.loudness-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* === Kachel 5: Transkript === */
+.transcript-box {
+  background: #0f172a;
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  min-height: 60px;
+  max-height: 120px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  width: 100%;
+}
+
+.transcript-box::-webkit-scrollbar {
+  width: 4px;
+}
+
+.transcript-box::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.transcript-box::-webkit-scrollbar-thumb {
+  background: var(--border-card);
+  border-radius: 2px;
+}
+
+/* Füllwort-Highlights im Transkript */
+.filler-highlight {
+  color: var(--color-danger);
+  font-weight: 700;
+}
+
+.filler-highlight-warning {
+  color: var(--color-warning);
+  font-weight: 700;
+}
+
+/* === Kachel 6: Mikrofon === */
+.mic-card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 80px;
+}
+
+.mic-button {
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  border: 3px solid #667eea;
-  background: #ffffff;
-  color: #667eea;
+  border: 3px solid var(--color-primary);
+  background: transparent;
+  color: var(--color-primary);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all var(--transition-med);
   outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .mic-button:hover {
-  background: #667eea;
+  background: var(--color-primary);
   color: #ffffff;
   transform: scale(1.05);
+  box-shadow: 0 0 20px var(--color-primary-glow);
 }
 
 .mic-button:active {
@@ -73,161 +441,283 @@ header h1 {
 }
 
 .mic-button.recording {
-  background: #e53e3e;
-  border-color: #e53e3e;
+  background: var(--color-danger);
+  border-color: var(--color-danger);
   color: #ffffff;
   animation: pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.4); }
-  50% { box-shadow: 0 0 0 16px rgba(229, 62, 62, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 16px rgba(239, 68, 68, 0); }
 }
 
-.status {
-  text-align: center;
-  color: #718096;
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
-}
-
-/* === Metriken === */
-.metrics {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.metric-card {
-  background: #f7fafc;
-  border-radius: 16px;
-  padding: 1rem;
-  text-align: center;
-}
-
-.metric-label {
-  display: block;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #a0aec0;
-  margin-bottom: 0.5rem;
-}
-
-.metric-value {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #2d3748;
-}
-
-/* === Feedback-Farben === */
-.feedback.slow {
-  color: #e53e3e;
-}
-.feedback.good {
-  color: #38a169;
-}
-.feedback.fast {
-  color: #dd6b20;
-}
-
-/* === Füllwort-Sektion === */
-.filler-section {
-  background: #f7fafc;
-  border-radius: 16px;
-  padding: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.filler-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.filler-row .metric-label {
-  margin-bottom: 0;
-}
-
-.filler-row .metric-value {
-  font-size: 1.25rem;
-}
-
-.warning {
-  margin-top: 0.75rem;
-  padding: 0.6rem 0.75rem;
-  background: #fed7d7;
-  color: #c53030;
-  border-radius: 10px;
+.mic-status {
+  color: var(--text-muted);
   font-size: 0.85rem;
-  font-weight: 600;
   text-align: center;
-  transition: opacity 0.3s ease;
-}
-
-.warning.hidden {
-  display: none;
-}
-
-/* === Transkript === */
-.transcript-section {
-  margin-bottom: 1.5rem;
-}
-
-.transcript-section h2 {
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #a0aec0;
-  margin-bottom: 0.5rem;
-}
-
-.transcript {
-  background: #f7fafc;
-  border-radius: 12px;
-  padding: 1rem;
-  min-height: 80px;
-  max-height: 200px;
-  overflow-y: auto;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  color: #4a5568;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 /* === Reset-Button === */
 .reset-button {
   display: block;
   width: 100%;
+  max-width: 400px;
+  margin: 1.5rem auto 0;
   padding: 0.75rem;
-  border: 2px solid #e2e8f0;
+  border: 1px solid var(--border-card);
   border-radius: 12px;
-  background: #ffffff;
-  color: #718096;
-  font-size: 0.9rem;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
 }
 
 .reset-button:hover {
-  background: #f7fafc;
-  border-color: #cbd5e0;
-  color: #4a5568;
+  background: var(--bg-card);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
 }
 
-/* === Neue Analyse-Karten (Pause, Tonalität, Lautstärke) === */
-.analysis-card {
-  background: #f7fafc;
-  border-radius: 16px;
-  padding: 1rem;
+/* ============================================
+   DESKTOP (ab 768px)
+   ============================================ */
+@media (min-width: 768px) {
+  body {
+    padding: 2rem;
+    align-items: center;
+  }
+
+  .dashboard {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .card {
+    min-height: 200px;
+  }
+
+  /* Standard-Modus: Mikrofon als normale Kachel in Reihe 2, Mitte */
+  .mode-standard .card-mic {
+    min-height: 200px;
+  }
+
+  .mode-standard .card-mic .mic-button {
+    width: 100px;
+    height: 100px;
+  }
+
+  .mode-standard .card-mic .mic-card-body {
+    max-width: 400px;
+    width: 100%;
+  }
+
+  /* Experten-Modus: Mikrofon wandert nach unten (volle Breite, Footer) */
+  .mode-expert .card-mic {
+    grid-column: 1 / -1;
+    order: 10;
+    min-height: 180px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mode-expert .card-mic .mic-button {
+    width: 100px;
+    height: 100px;
+  }
+
+  .mode-expert .card-mic .mic-card-body {
+    max-width: 400px;
+    width: 100%;
+  }
+
+  .card-value {
+    font-size: 2.8rem;
+  }
+}
+
+/* ============================================
+   MOBILE (unter 768px)
+   ============================================ */
+@media (max-width: 767px) {
+  body {
+    padding: 0.75rem 0.5rem;
+    align-items: flex-start;
+  }
+
+  .dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    padding-bottom: 90px; /* Platz für fixierten Mic-Button */
+  }
+
+  .card {
+    min-height: auto;
+    padding: 1rem;
+  }
+
+  .card-body {
+    min-height: 60px;
+  }
+
+  .card-value {
+    font-size: 2rem;
+  }
+
+  .card-emotion {
+    font-size: 1.15rem;
+  }
+
+  .app-title {
+    font-size: 1.4rem;
+  }
+
+  .settings-btn {
+    position: static;
+    transform: none;
+  }
+
+  .header-left {
+    justify-content: flex-start;
+    gap: 0.5rem;
+  }
+
+  .settings-dropdown {
+    left: 0.5rem;
+    right: auto;
+  }
+
+  /* Mikrofon: fixiert am unteren Rand, schmales Querformat (nur Standard) */
+  .mode-standard .card-mic {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    padding: 0.75rem 1rem;
+    z-index: 50;
+    min-height: auto;
+  }
+
+  .mode-standard .card-mic .mic-card-body {
+    flex-direction: row;
+    gap: 1rem;
+    min-height: auto;
+  }
+
+  .mode-standard .card-mic .mic-button {
+    width: 56px;
+    height: 56px;
+  }
+
+  .mode-standard .card-mic .mic-button svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .mode-standard .card-mic .mic-status {
+    font-size: 0.8rem;
+  }
+
+  /* Experten-Modus Mobile: Mikrofon nicht fixiert, normal im Fluss */
+  .mode-expert .card-mic {
+    position: static;
+    border-radius: var(--radius-card);
+    border-bottom: 1px solid var(--border-card);
+    padding: 1.25rem;
+  }
+
+  .mode-expert .card-mic .mic-card-body {
+    flex-direction: column;
+    gap: 0.75rem;
+    min-height: 80px;
+  }
+
+  .mode-expert .card-mic .mic-button {
+    width: 80px;
+    height: 80px;
+  }
+
+  .mode-expert .card-mic .mic-button svg {
+    width: 48px;
+    height: 48px;
+  }
+
+  .mode-expert .card-mic .mic-status {
+    font-size: 0.85rem;
+  }
+
+  .pitch-chart {
+    max-height: 80px;
+  }
+}
+
+/* ============================================
+   ZUSTANDS-FARBEN für JS-Updates
+   ============================================ */
+.card-emotion.slow {
+  color: var(--color-danger);
+}
+.card-emotion.good {
+  color: var(--color-success);
+}
+.card-emotion.fast {
+  color: var(--color-warning);
+}
+
+/* === WPM-Display-Farben === */
+.wpm-slow { color: var(--color-danger); }
+.wpm-good { color: var(--color-success); }
+.wpm-fast { color: var(--color-warning); }
+
+/* === Filler-Warnung === */
+.warning {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-danger);
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
   text-align: center;
-  margin-bottom: 1rem;
+  transition: opacity var(--transition-fast);
 }
 
+.warning.hidden {
+  display: none;
+}
+
+/* === Tonalität Indikatoren (wird von JS gesetzt) === */
+.indicator {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.indicator.short { background: rgba(16, 185, 129, 0.2); color: var(--color-success); }
+.indicator.medium { background: rgba(245, 158, 11, 0.2); color: var(--color-warning); }
+.indicator.long { background: rgba(239, 68, 68, 0.2); color: var(--color-danger); }
+
+.tone-monotone { background: rgba(239, 68, 68, 0.2); color: var(--color-danger); }
+.tone-varied { background: rgba(16, 185, 129, 0.2); color: var(--color-success); }
+.tone-rising { background: rgba(59, 130, 246, 0.2); color: var(--color-primary); }
+.tone-falling { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; }
+
+/* Alte Analyse-Karten-Klassen (für JS-Kompatibilität) */
+.analysis-card {
+  display: none; /* wird nicht mehr verwendet */
+}
+
+/* === Pausen-Metriken (für JS-Kompatibilität) === */
 .pause-metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -239,30 +729,11 @@ header h1 {
   font-size: 1.25rem;
 }
 
-.indicator {
-  display: inline-block;
-  margin-top: 0.5rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  background: #e2e8f0;
-  color: #4a5568;
-}
-
-.indicator.short { background: #c6f6d5; color: #22543d; }
-.indicator.medium { background: #feebc8; color: #744210; }
-.indicator.long { background: #fed7d7; color: #742a2a; }
-
-.tone-monotone { background: #fed7d7; color: #742a2a; }
-.tone-varied { background: #c6f6d5; color: #22543d; }
-.tone-rising { background: #bee3f8; color: #2a4365; }
-.tone-falling { background: #e9d8fd; color: #44337a; }
-
+/* === Loudness-Meter (für JS-Kompatibilität) === */
 .loudness-meter {
   width: 100%;
   height: 12px;
-  background: #e2e8f0;
+  background: var(--border-card);
   border-radius: 9999px;
   overflow: hidden;
   margin: 0.75rem 0 0.5rem;
@@ -271,11 +742,12 @@ header h1 {
 .loudness-bar {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, #48bb78, #ecc94b, #f56565);
+  background: linear-gradient(90deg, var(--color-success), var(--color-warning), var(--color-danger));
   border-radius: 9999px;
   transition: width 0.1s linear;
 }
 
+/* === Feedback-Text-Klassen (für JS-Kompatibilität) === */
 .feedback-text {
   display: block;
   margin-top: 0.5rem;
@@ -284,47 +756,32 @@ header h1 {
   padding: 0.3rem 0.5rem;
   border-radius: 8px;
   text-align: center;
-  background: #e2e8f0;
-  color: #4a5568;
+  background: var(--border-card);
+  color: var(--text-secondary);
 }
-.loudness-feedback-quiet { background: #fed7d7; color: #742a2a; }
-.loudness-feedback-normal { background: #c6f6d5; color: #22543d; }
-.loudness-feedback-loud { background: #feebc8; color: #744210; }
-.tone-feedback-monotone { background: #fed7d7; color: #742a2a; }
-.tone-feedback-varied { background: #c6f6d5; color: #22543d; }
-.tone-feedback-dynamic { background: #e9d8fd; color: #44337a; }
-.loudness-quiet { color: #718096; }
-.loudness-normal { color: #38a169; }
-.loudness-loud { color: #dd6b20; }
 
-/* === Pitch-Graph (Canvas) === */
+.loudness-feedback-quiet { background: rgba(239, 68, 68, 0.15); color: var(--color-danger); }
+.loudness-feedback-normal { background: rgba(16, 185, 129, 0.15); color: var(--color-success); }
+.loudness-feedback-loud { background: rgba(245, 158, 11, 0.15); color: var(--color-warning); }
+.tone-feedback-monotone { background: rgba(239, 68, 68, 0.15); color: var(--color-danger); }
+.tone-feedback-varied { background: rgba(16, 185, 129, 0.15); color: var(--color-success); }
+.tone-feedback-dynamic { background: rgba(139, 92, 246, 0.15); color: #8b5cf6; }
+
+.loudness-quiet { color: var(--text-muted); }
+.loudness-normal { color: var(--color-success); }
+.loudness-loud { color: var(--color-warning); }
+
+/* === Pitch-Graph Canvas (für JS-Kompatibilität) === */
 .pitch-graph-container {
   margin-top: 0.75rem;
   border-radius: 10px;
   overflow: hidden;
-  background: #1a1a2e;
+  background: #0f172a;
 }
 
 #pitchGraph {
   display: block;
   width: 100%;
   height: auto;
-  background: #1a1a2e;
-}
-
-/* === Responsive === */
-@media (max-width: 480px) {
-  .container {
-    padding: 1.25rem;
-  }
-  .metrics {
-    grid-template-columns: 1fr;
-  }
-  .metric-value {
-    font-size: 1.5rem;
-  }
-  .mic-button {
-    width: 64px;
-    height: 64px;
-  }
+  background: #0f172a;
 }
