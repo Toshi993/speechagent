@@ -3,100 +3,180 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Speech Analyst – Sprechtempo & Füllwörter</title>
+  <title>Speech Analyst Pro – Sprechtempo & Füllwörter</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
-  <div class="container">
-    <header>
-      <h1>Speech Analyst</h1>
+<body class="mode-standard">
+  <div class="app-container">
+    <!-- Header mit Zahnrad -->
+    <header class="app-header">
+      <div class="header-left">
+        <button id="settingsToggle" class="settings-btn" aria-label="Einstellungen">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+        <h1 class="app-title">Speech Analyst Pro</h1>
+      </div>
       <p class="subtitle">Echtzeit-Sprachanalyse</p>
     </header>
 
-    <main>
-      <!-- Mikrofon-Button -->
-      <button id="micButton" class="mic-button" aria-label="Mikrofon starten/stoppen">
-        <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
-          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-        </svg>
-      </button>
-      <p id="micStatus" class="status">Klicke zum Starten</p>
-
-      <!-- WPM & Feedback -->
-      <div class="metrics">
-        <div class="metric-card">
-          <span class="metric-label">Wörter pro Minute</span>
-          <span id="wpmDisplay" class="metric-value">0</span>
-        </div>
-        <div class="metric-card feedback-card">
-          <span class="metric-label">Feedback</span>
-          <span id="feedbackDisplay" class="metric-value feedback">—</span>
-        </div>
+    <!-- Settings Dropdown -->
+    <div id="settingsDropdown" class="settings-dropdown hidden">
+      <div class="dropdown-arrow"></div>
+      <span class="dropdown-label">Modus wählen</span>
+      <div class="mode-toggle-group">
+        <button id="modeStandard" class="mode-btn active" data-mode="standard">Standard</button>
+        <button id="modeExpert" class="mode-btn" data-mode="expert">Experte</button>
       </div>
+    </div>
 
-      <!-- Füllwort-Zähler -->
-      <div class="filler-section">
-        <div class="filler-row">
-          <span class="metric-label">Füllwörter</span>
-          <span id="fillerCount" class="metric-value">0</span>
-          <span class="metric-label">Dichte</span>
-          <span id="fillerDensity" class="metric-value">0%</span>
-        </div>
-        <div id="fillerWarning" class="warning hidden">
-          ⚠️ Hohe Füllwort-Dichte – achte auf deine Ausdrucksweise!
-        </div>
-      </div>
+    <!-- Hauptbereich: 6 Kacheln im Grid -->
+    <main class="dashboard">
 
-      <!-- Pausen-Analyse -->
-      <div class="analysis-card pause-card">
-        <span class="metric-label">Pausen-Analyse</span>
-        <div class="pause-metrics">
-          <div class="pause-metric">
-            <span class="metric-label">Aktuelle Pause</span>
-            <span id="currentPauseDisplay" class="metric-value small">0,0 s</span>
+      <!-- Kachel 1: Sprechgeschwindigkeit -->
+      <div class="card card-speed">
+        <div class="card-header">
+          <span class="card-icon">&#9201;</span>
+          <span class="card-label">Sprechgeschwindigkeit</span>
+        </div>
+        <div class="card-body">
+          <div class="expert-content">
+            <span id="wpmDisplay" class="card-value">0</span>
+            <span class="card-unit">Wörter / Min.</span>
           </div>
-          <div class="pause-metric">
-            <span class="metric-label">Durchschnitt</span>
-            <span id="averagePauseDisplay" class="metric-value small">0,0 s</span>
+          <div class="standard-content">
+            <span id="feedbackDisplay" class="card-emotion success">Genau richtig!</span>
           </div>
         </div>
-        <span id="pauseClassDisplay" class="indicator">—</span>
-      </div>
-
-      <!-- Tonalitäts-Analyse -->
-      <div class="analysis-card">
-        <span class="metric-label">Tonalität</span>
-        <span id="tonalityDisplay" class="metric-value">—</span>
-        <span id="tonalityIndicator" class="indicator tone-monotone">Monoton</span>
-        <p id="tonalityFeedback" class="feedback-text">—</p>
-        <div class="pitch-graph-container">
-          <canvas id="pitchGraph" width="520" height="120"></canvas>
+        <div class="card-footer expert-only-footer">
+          <span id="speedExpertFeedback" class="feedback-banner">—</span>
         </div>
       </div>
 
-      <!-- Lautstärke-Analyse -->
-      <div class="analysis-card">
-        <span class="metric-label">Lautstärke</span>
-        <div class="loudness-meter">
-          <div id="loudnessBar" class="loudness-bar"></div>
+      <!-- Kachel 2: Füllwörtererkennung -->
+      <div class="card card-filler">
+        <div class="card-header">
+          <span class="card-icon">&#9888;</span>
+          <span class="card-label">Füllwörtererkennung</span>
         </div>
-        <span id="loudnessDisplay" class="metric-value small">—</span>
-        <p id="loudnessFeedback" class="feedback-text">—</p>
+        <div class="card-body">
+          <div class="expert-content">
+            <span id="fillerDensity" class="card-value">0%</span>
+            <span id="fillerCount" class="card-unit">Füllwort-Quote (<span id="fillerCountInline">0</span> "Ähms")</span>
+          </div>
+          <div class="standard-content">
+            <span id="fillerIndicator" class="card-emotion">—</span>
+          </div>
+        </div>
+        <div id="fillerWarning" class="warning hidden">&#9888; Hohe Füllwort-Dichte – achte auf deine Ausdrucksweise!</div>
+        <div class="card-footer expert-only-footer">
+          <span id="fillerExpertFeedback" class="feedback-banner">—</span>
+        </div>
       </div>
 
-      <!-- Transkript -->
-      <div class="transcript-section">
-        <h2>Transkript</h2>
-        <p id="transcript" class="transcript">…</p>
+      <!-- Kachel 3: Tonalität & Frequenz -->
+      <div class="card card-tonality">
+        <div class="card-header">
+          <span class="card-icon">&#9835;</span>
+          <span class="card-label">Tonalität & Frequenz</span>
+        </div>
+        <div class="card-body">
+          <div class="expert-content">
+            <div class="pitch-chart-wrapper">
+              <svg id="pitchChart" class="pitch-chart" viewBox="0 0 520 120" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="pitchGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.4"/>
+                    <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.02"/>
+                  </linearGradient>
+                </defs>
+                <g class="chart-grid">
+                  <line x1="0" y1="20" x2="520" y2="20" stroke="#334155" stroke-width="0.5"/>
+                  <line x1="0" y1="40" x2="520" y2="40" stroke="#334155" stroke-width="0.5"/>
+                  <line x1="0" y1="60" x2="520" y2="60" stroke="#334155" stroke-width="0.5"/>
+                  <line x1="0" y1="80" x2="520" y2="80" stroke="#334155" stroke-width="0.5"/>
+                  <line x1="0" y1="100" x2="520" y2="100" stroke="#334155" stroke-width="0.5"/>
+                </g>
+                <path id="pitchLine" class="chart-line" d="" fill="none"/>
+                <path id="pitchArea" class="chart-area" d="" fill="url(#pitchGradient)"/>
+                <circle id="pitchDot" class="chart-dot" r="3" fill="#ef4444" opacity="0"/>
+              </svg>
+            </div>
+            <div class="pitch-labels">
+              <span id="pitchMinLabel" class="pitch-label">0 Hz</span>
+              <span id="pitchMaxLabel" class="pitch-label">0 Hz</span>
+            </div>
+            <div id="tonalityDisplay" class="card-unit">0 Hz</div>
+          </div>
+          <div class="standard-content">
+            <span id="tonalityIndicator" class="card-emotion warning">Etwas monoton</span>
+          </div>
+        </div>
+        <div class="card-footer">
+          <span id="tonalityFeedback" class="feedback-banner warning">[&#9888;] Versuche, emotionaler zu betonen.</span>
+        </div>
       </div>
 
-      <!-- Reset-Button -->
-      <button id="resetButton" class="reset-button">Zurücksetzen</button>
+      <!-- Kachel 4: Lautstärke -->
+      <div class="card card-loudness">
+        <div class="card-header">
+          <span class="card-icon">&#128266;</span>
+          <span class="card-label">Lautstärke</span>
+        </div>
+        <div class="card-body">
+          <div class="expert-content">
+            <div class="loudness-scale">
+              <div class="loudness-track">
+                <div id="loudnessNeedle" class="loudness-needle"></div>
+              </div>
+              <div class="loudness-labels">
+                <span>Leise</span>
+                <span>Optimal</span>
+                <span>Laut</span>
+              </div>
+            </div>
+          </div>
+          <div class="standard-content">
+            <span id="loudnessDisplay" class="card-emotion success">Optimal verständlich</span>
+          </div>
+        </div>
+        <div class="card-footer">
+          <span id="loudnessFeedback" class="feedback-banner">[&#10132;] Lautstärke ist genau richtig.</span>
+        </div>
+      </div>
+
+      <!-- Kachel 5: Mikrofon-Aufnahme-Button -->
+      <div class="card card-mic">
+        <div class="card-body mic-card-body">
+          <button id="micButton" class="mic-button" aria-label="Mikrofon starten/stoppen">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+            </svg>
+          </button>
+          <p id="micStatus" class="mic-status">Klicke zum Starten</p>
+        </div>
+      </div>
+
+      <!-- Kachel 6: Live-Transkript (nur Experte) -->
+      <div class="card card-transcript expert-only">
+        <div class="card-header">
+          <span class="card-icon">&#128221;</span>
+          <span class="card-label">Live-Transkript</span>
+        </div>
+        <div class="card-body">
+          <div id="transcript" class="transcript-box">…</div>
+        </div>
+      </div>
+
     </main>
+
+    <!-- Reset-Button -->
+    <button id="resetButton" class="reset-button">Zurücksetzen</button>
   </div>
 
   <script src="app.js"></script>
 </body>
 </html>
-</environment_details>

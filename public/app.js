@@ -1,38 +1,63 @@
 /* ============================================
-   Speech Analyst – app.js v12
+   Speech Analyst Pro – app.js v13
    Echtzeit-Sprachanalyse via Web Speech API
    - Füllwort-Erkennung: Unicode-Normalisierung
    - Zeitbasierter Moving Average (10s / 20s)
    - Text-Feedback in deutscher Sprache
-   - Pitch-Glättung: Median-Filter + Delta-Limit + 190 Hz Cap
+   - SVG-Line-Chart für Pitch
+   - Modus-Toggle (Standard / Experte)
+   - Füllwort-Highlights im Transkript
    ============================================ */
 
 (function() {
   'use strict';
 
   // DOM-Referenzen
-  var micButton     = document.getElementById('micButton');
-  var micStatus     = document.getElementById('micStatus');
-  var wpmDisplay    = document.getElementById('wpmDisplay');
-  var feedbackDisp  = document.getElementById('feedbackDisplay');
-  var fillerCountEl = document.getElementById('fillerCount');
-  var fillerDensity = document.getElementById('fillerDensity');
-  var fillerWarning = document.getElementById('fillerWarning');
-  var transcriptEl  = document.getElementById('transcript');
-  var resetButton   = document.getElementById('resetButton');
+  var micButton        = document.getElementById('micButton');
+  var micStatus        = document.getElementById('micStatus');
+  var wpmDisplay       = document.getElementById('wpmDisplay');
+  var feedbackDisp     = document.getElementById('feedbackDisplay');
+  var fillerCountEl    = document.getElementById('fillerCount');
+  var fillerDensity    = document.getElementById('fillerDensity');
+  var fillerCountInline= document.getElementById('fillerCountInline');
+  var fillerWarning    = document.getElementById('fillerWarning');
+  var fillerIndicator  = document.getElementById('fillerIndicator');
+  var transcriptEl     = document.getElementById('transcript');
+  var resetButton      = document.getElementById('resetButton');
 
-  // === NEUE DOM-Referenzen für Pausen-, Tonalitäts- und Lautstärke-Analyse ===
+  // Modus-Toggle
+  var settingsToggle   = document.getElementById('settingsToggle');
+  var settingsDropdown = document.getElementById('settingsDropdown');
+  var modeStandardBtn  = document.getElementById('modeStandard');
+  var modeExpertBtn    = document.getElementById('modeExpert');
+
+  // SVG-Line-Chart
+  var pitchChartSvg    = document.getElementById('pitchChart');
+  var pitchLine        = document.getElementById('pitchLine');
+  var pitchArea        = document.getElementById('pitchArea');
+  var pitchDot         = document.getElementById('pitchDot');
+  var pitchMinLabel    = document.getElementById('pitchMinLabel');
+  var pitchMaxLabel    = document.getElementById('pitchMaxLabel');
+
+  // Lautstärke-Nadel
+  var loudnessNeedle   = document.getElementById('loudnessNeedle');
+
+  // Alte DOM-Referenzen (für fallback / kompatibilität)
+  var pitchCanvas      = document.getElementById('pitchGraph');
+  var pitchCtx         = pitchCanvas ? pitchCanvas.getContext('2d') : null;
+  var loudnessBar      = document.getElementById('loudnessBar');
+  var loudnessDisplay  = document.getElementById('loudnessDisplay');
+  var loudnessFeedback = document.getElementById('loudnessFeedback');
+  var tonalityDisplay  = document.getElementById('tonalityDisplay');
+  var tonalityIndicator= document.getElementById('tonalityIndicator');
+  var tonalityFeedback = document.getElementById('tonalityFeedback');
   var currentPauseDisplay = document.getElementById('currentPauseDisplay');
   var averagePauseDisplay = document.getElementById('averagePauseDisplay');
-  var pauseClassDisplay   = document.getElementById('pauseClassDisplay');
-  var tonalityDisplay     = document.getElementById('tonalityDisplay');
-  var tonalityIndicator   = document.getElementById('tonalityIndicator');
-  var loudnessBar         = document.getElementById('loudnessBar');
-  var loudnessDisplay     = document.getElementById('loudnessDisplay');
-  var loudnessFeedback    = document.getElementById('loudnessFeedback');
-  var tonalityFeedback    = document.getElementById('tonalityFeedback');
-  var pitchCanvas         = document.getElementById('pitchGraph');
-  var pitchCtx            = pitchCanvas ? pitchCanvas.getContext('2d') : null;
+  var pauseClassDisplay    = document.getElementById('pauseClassDisplay');
+
+  // Experten-Footer
+  var speedExpertFeedback = document.getElementById('speedExpertFeedback');
+  var fillerExpertFeedback = document.getElementById('fillerExpertFeedback');
 
   // Konfiguration
   var FILLER_VARIANTS = {
@@ -84,24 +109,144 @@
   var currentPauseDuration = 0;
 
   // === ZEITBASIERTER GLEITENDER MITTELWERT (Moving Average) – Zustand ===
-  var VOLUME_WINDOW_MS  = 10000;   // 10 Sekunden für Lautstärke
-  var PITCH_WINDOW_MS   = 10000;   // 10 Sekunden für Tonalität
-  var volumeHistory     = [];      // Array von { value, ts }
-  var pitchHistory      = [];      // Array von { value, ts }
-  var lastVolumeFBTime  = 0;       // für träges Text-Feedback
+  var VOLUME_WINDOW_MS  = 10000;
+  var PITCH_WINDOW_MS   = 10000;
+  var volumeHistory     = [];
+  var pitchHistory      = [];
+  var lastVolumeFBTime  = 0;
   var lastToneFBTime    = 0;
-  var FEEDBACK_INTERVAL = 500;     // Text-Feedback max. alle 500ms aktualisieren
+  var FEEDBACK_INTERVAL = 500;
 
   // === LAUTSTÄRKE-ANALYSE – Zustand ===
   var LOUDNESS_QUIET_MAX = 0.02;
   var LOUDNESS_LOUD_MIN  = 0.10;
 
+  // ============================================================
+  // === MODUS-TOGGLE ===
+  // ============================================================
+  function setMode(mode) { document.body.className = "mode-" + mode; if (modeStandardBtn) modeStandardBtn.classList.toggle("active", mode === "standard"); if (modeExpertBtn) modeExpertBtn.classList.toggle("active", mode === "expert"); if (settingsDropdown) settingsDropdown.classList.add("hidden"); }
+
+  if (settingsToggle) { settingsToggle.addEventListener('click', function(e) { e.stopPropagation(); if (settingsDropdown) settingsDropdown.classList.toggle('hidden'); }); }
+
+  if (modeStandardBtn) modeStandardBtn.addEventListener('click', function() { setMode('standard'); });
+  if (modeExpertBtn) modeExpertBtn.addEventListener('click', function() { setMode('expert'); });
+
+  // Dropdown schließen bei Klick außerhalb
+  document.addEventListener('click', function(e) {
+    if (settingsDropdown && !settingsDropdown.classList.contains('hidden') && settingsToggle && !settingsToggle.contains(e.target) &&
+        !settingsDropdown.contains(e.target)) {
+      settingsDropdown.classList.add('hidden');
+    }
+  });
+
+  // ============================================================
+  // === SVG-LINE-CHART ===
+  // ============================================================
+  function drawPitchChart() {
+    if (!pitchLine || !pitchArea || !pitchDot) return;
+
+    var values = extractValues(pitchHistory);
+    var validValues = filterValidPitchValues(values);
+
+    if (validValues.length < 2) {
+      pitchLine.setAttribute('d', '');
+      pitchArea.setAttribute('d', '');
+      pitchDot.setAttribute('opacity', '0');
+      if (pitchMinLabel) pitchMinLabel.textContent = '0 Hz';
+      if (pitchMaxLabel) pitchMaxLabel.textContent = '0 Hz';
+      return;
+    }
+
+    var minVal = validValues[0], maxVal = validValues[0];
+    for (var i = 1; i < validValues.length; i++) {
+      if (validValues[i] < minVal) minVal = validValues[i];
+      if (validValues[i] > maxVal) maxVal = validValues[i];
+    }
+    var range = maxVal - minVal;
+    if (range < 20) {
+      var mid = (maxVal + minVal) / 2;
+      minVal = mid - 10;
+      maxVal = mid + 10;
+      range = 20;
+    }
+    if (range === 0) range = 20;
+
+    var w = 520, h = 120;
+    var lineParts = [];
+    var areaParts = [];
+    var pathStarted = false;
+
+    for (var i = 0; i < values.length; i++) {
+      var val = values[i];
+      if (val <= 40) {
+        pathStarted = false;
+        continue;
+      }
+      var x = (i / (values.length - 1)) * w;
+      var y = h - ((val - minVal) / range) * (h - 20) - 10;
+
+      if (!pathStarted) {
+        lineParts.push('M' + x.toFixed(1) + ',' + y.toFixed(1));
+        areaParts.push('M' + x.toFixed(1) + ',' + y.toFixed(1));
+        pathStarted = true;
+      } else {
+        lineParts.push('L' + x.toFixed(1) + ',' + y.toFixed(1));
+        areaParts.push('L' + x.toFixed(1) + ',' + y.toFixed(1));
+      }
+    }
+
+    if (lineParts.length > 0) {
+      pitchLine.setAttribute('d', lineParts.join(' '));
+
+      // Area: schließe den Pfad zum Boden
+      var lastX = parseFloat(areaParts[areaParts.length - 1].split(',')[0].substring(1));
+      areaParts.push('L' + lastX.toFixed(1) + ',' + h);
+      var firstX = parseFloat(areaParts[0].split(',')[0].substring(1));
+      areaParts.push('L' + firstX.toFixed(1) + ',' + h + 'Z');
+      pitchArea.setAttribute('d', areaParts.join(' '));
+
+      // Letzten validen Punkt als Dot
+      var lastValidVal = 0;
+      var lastValidIdx = -1;
+      for (var j = values.length - 1; j >= 0; j--) {
+        if (values[j] > 40) {
+          lastValidVal = values[j];
+          lastValidIdx = j;
+          break;
+        }
+      }
+      if (lastValidIdx >= 0) {
+        var dotX = (lastValidIdx / (values.length - 1)) * w;
+        var dotY = h - ((lastValidVal - minVal) / range) * (h - 20) - 10;
+        pitchDot.setAttribute('cx', dotX.toFixed(1));
+        pitchDot.setAttribute('cy', dotY.toFixed(1));
+        pitchDot.setAttribute('opacity', '1');
+      }
+    } else {
+      pitchLine.setAttribute('d', '');
+      pitchArea.setAttribute('d', '');
+      pitchDot.setAttribute('opacity', '0');
+    }
+
+    if (pitchMinLabel) pitchMinLabel.textContent = Math.round(minVal) + ' Hz';
+    if (pitchMaxLabel) pitchMaxLabel.textContent = Math.round(maxVal) + ' Hz';
+  }
+
+  // ============================================================
+  // === LAUTSTÄRKE-NADEL ===
+  // ============================================================
+  function updateLoudnessNeedle(percent) {
+    if (loudnessNeedle) {
+      loudnessNeedle.style.left = Math.min(Math.max(percent, 0), 100) + '%';
+    }
+  }
+
   // SpeechRecognition Factory
   function createRecognition() {
     var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-      micStatus.textContent = 'Bitte Chrome/Edge verwenden';
-      micButton.disabled = true;
+      if (micStatus) micStatus.textContent = 'Bitte Chrome/Edge verwenden';
+      if (micButton) micButton.disabled = true;
       return null;
     }
 
@@ -173,7 +318,8 @@
     wordCount = words.length;
     fillerCount = countFillers(words);
 
-    transcriptEl.textContent = visibleText || '...';
+    // Transkript mit Füllwort-Highlights rendern
+    if (transcriptEl) transcriptEl.innerHTML = highlightFillers(visibleText) || '...';
     updateFillerUI();
 
     lastResultTime = Date.now();
@@ -265,23 +411,79 @@
     return count;
   }
 
-  // UI-Updates
-  function updateFillerUI() {
-    fillerCountEl.textContent = fillerCount;
-    var density = wordCount > 0 ? (fillerCount / wordCount) : 0;
-    fillerDensity.textContent = (density * 100).toFixed(1) + '%';
+  // Füllwort-Highlighting im Transkript
+  function highlightFillers(text) {
+    if (!text || text === '...') return text;
+    // Wörter einzeln durchgehen und Füllwörter mit <span> umschließen
+    var tokens = text.split(/(\s+)/);
+    for (var i = 0; i < tokens.length; i++) {
+      var word = tokens[i].trim();
+      if (word.length > 0 && isFillerWord(word)) {
+        var punct = '';
+        var clean = word;
+        // Satzzeichen abtrennen
+        var match = word.match(/^([.,!?;:()"'\u2014\u2013]+)?(.+?)([.,!?;:()"'\u2014\u2013]+)?$/);
+        if (match) {
+          clean = match[2] || word;
+        }
+        // Bestimmte Füllwörter in Gelb hervorheben
+        var lower = clean.toLowerCase();
+        var cls = (lower === 'halt' || lower === 'so' || lower === 'also' || lower === 'quasi' || lower === 'irgendwie' || lower === 'eigentlich' || lower === 'sozusagen' || lower === 'praktisch' || lower === 'sprich')
+          ? 'filler-highlight-warning' : 'filler-highlight';
+        tokens[i] = word.replace(clean, '<span class="' + cls + '">' + clean + '</span>');
+      }
+    }
+    return tokens.join('');
+  }
 
-    if (density >= FILLER_WARN_THRESHOLD) {
-      fillerWarning.classList.remove('hidden');
-    } else {
-      fillerWarning.classList.add('hidden');
+  // UI-Updates
+  function updateFillerUI() { if (fillerCountEl) fillerCountEl.textContent = fillerCount; if (fillerCountInline) fillerCountInline.textContent = fillerCount; var density = wordCount > 0 ? (fillerCount / wordCount) : 0; if (fillerDensity) fillerDensity.textContent = (density * 100).toFixed(1) + '%';
+
+    if (fillerWarning) {
+      if (density >= FILLER_WARN_THRESHOLD) {
+        if (fillerWarning) fillerWarning.classList.remove('hidden');
+      } else {
+        if (fillerWarning) fillerWarning.classList.add('hidden');
+      }
+    }
+
+    // Standard-Modus: fillerIndicator aktualisieren
+    if (fillerIndicator) {
+      var stdText, stdClass;
+      if (density < 0.02) {
+        stdText = density === 0 ? 'Keine Füllwörter ✅' : 'Exzellenter Redefluss!';
+        stdClass = 'success';
+      } else if (density < 0.05) {
+        stdText = 'Füllwörter nehmen zu ⚠️';
+        stdClass = 'warning';
+      } else {
+        stdText = 'Zu viele Füllwörter!';
+        stdClass = 'danger';
+      }
+      fillerIndicator.textContent = stdText;
+      fillerIndicator.className = 'card-emotion ' + stdClass;
+    }
+
+    // Experten-Modus: fillerExpertFeedback aktualisieren
+    if (fillerExpertFeedback) {
+      var fillerText, fillerClass;
+      if (density < 0.02) {
+        fillerText = 'Geringe Füllwort-Dichte';
+        fillerClass = 'success';
+      } else if (density < 0.05) {
+        fillerText = 'Moderate Füllwort-Dichte';
+        fillerClass = 'warning';
+      } else {
+        fillerText = 'Hohe Füllwort-Dichte – Bitte reduzieren!';
+        fillerClass = 'danger';
+      }
+      fillerExpertFeedback.textContent = fillerText;
+      fillerExpertFeedback.className = 'feedback-banner ' + fillerClass;
     }
   }
 
   function updateWPM() {
-    if (!sessionStart || wordCount === 0) {
-      wpmDisplay.textContent = '0';
-      feedbackDisp.textContent = '\u2014';
+    if (!sessionStart || wordCount === 0) { if (wpmDisplay) wpmDisplay.textContent = '0'; if (feedbackDisp) feedbackDisp.textContent = '\u2014';
       return;
     }
 
@@ -293,7 +495,7 @@
     var wpm = Math.round(wordsInWindow / (windowSeconds / 60));
     var clamped = Math.min(Math.max(wpm, 0), 400);
 
-    wpmDisplay.textContent = clamped;
+    if (wpmDisplay) wpmDisplay.textContent = clamped;
 
     var feedbackText, feedbackClass;
     if (clamped < WPM_SLOW_MAX) {
@@ -307,8 +509,8 @@
       feedbackClass  = 'fast';
     }
 
-    feedbackDisp.textContent = feedbackText;
-    feedbackDisp.className = 'metric-value feedback ' + feedbackClass;
+    if (feedbackDisp) { feedbackDisp.textContent = feedbackText; feedbackDisp.className = 'card-emotion ' + feedbackClass; }
+    if (speedExpertFeedback) { speedExpertFeedback.textContent = feedbackText; speedExpertFeedback.className = 'feedback-banner ' + feedbackClass; }
   }
 
   // ============================================================
@@ -381,9 +583,9 @@
 
   function updateLoudnessUI(rms) {
     var cls = classifyLoudness(rms);
-    loudnessBar.style.width = cls.percent + '%';
-    loudnessDisplay.textContent = cls.label;
-    loudnessDisplay.className = 'metric-value small ' + cls.className;
+    if (loudnessBar) loudnessBar.style.width = cls.percent + '%';
+    if (loudnessDisplay) { loudnessDisplay.textContent = cls.label; loudnessDisplay.className = 'metric-value small ' + cls.className; }
+    updateLoudnessNeedle(cls.percent);
 
     // === Text-Feedback für Lautstärke (träge aktualisiert) ===
     var now = Date.now();
@@ -400,8 +602,7 @@
         feedbackText  = 'Bitte leiser sprechen';
         feedbackClass = 'loudness-feedback-loud';
       }
-      loudnessFeedback.textContent = feedbackText;
-      loudnessFeedback.className = 'feedback-text ' + feedbackClass;
+      if (loudnessFeedback) { loudnessFeedback.textContent = feedbackText; loudnessFeedback.className = 'feedback-text ' + feedbackClass; }
     }
   }
 
@@ -437,11 +638,11 @@
     var avg = pauseDurations.length > 0
       ? pauseDurations.reduce(function(a, b) { return a + b; }, 0) / pauseDurations.length
       : 0;
-    currentPauseDisplay.textContent = currentPauseDuration.toFixed(1).replace('.', ',') + ' s';
-    averagePauseDisplay.textContent = avg.toFixed(1).replace('.', ',') + ' s';
+    if (currentPauseDisplay) currentPauseDisplay.textContent = currentPauseDuration.toFixed(1).replace('.', ',') + ' s';
+    if (averagePauseDisplay) averagePauseDisplay.textContent = avg.toFixed(1).replace('.', ',') + ' s';
     var cls = classifyPause(currentPauseDuration);
-    pauseClassDisplay.textContent = isInPause ? cls.label : '—';
-    pauseClassDisplay.className = 'indicator ' + (isInPause ? cls.className : '');
+    if (pauseClassDisplay) pauseClassDisplay.textContent = isInPause ? cls.label : '—';
+    if (pauseClassDisplay) pauseClassDisplay.className = 'indicator ' + (isInPause ? cls.className : '');
   }
 
   // ============================================================
@@ -470,15 +671,13 @@
       if (nsdf > bestNSDF) { bestNSDF = nsdf; bestOffset = offset; }
     }
 
-    // Qualitätsschwelle: NSDF muss > 0.4 sein (0 = keine Korrelation, 1 = perfekt)
     if (bestOffset <= 0 || bestNSDF < 0.4) return 0;
 
     var pitch = sampleRate / bestOffset;
-    if (pitch > 300 || pitch < 80) return 0;  // Menschliche Sprechstimme
+    if (pitch > 300 || pitch < 80) return 0;
     return pitch;
   }
 
-  // Hilfsfunktion: Filtert Pitch-Werte ≤ 40 Hz (Pausen, Rauschen) heraus
   function filterValidPitchValues(arr) {
     var valid = [];
     for (var i = 0; i < arr.length; i++) {
@@ -508,12 +707,10 @@
 
     ctx.clearRect(0, 0, w, h);
 
-    // Hintergrund
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, w, h);
 
     if (values.length < 2) {
-      // Platzhalter-Text
       ctx.fillStyle = '#4a5568';
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
@@ -521,7 +718,6 @@
       return;
     }
 
-    // Nur valide Werte für den dynamischen Bereich verwenden (> 40 Hz)
     var validValues = filterValidPitchValues(values);
     var minVal, maxVal;
     if (validValues.length >= 2) {
@@ -532,13 +728,11 @@
         if (validValues[i] > maxVal) maxVal = validValues[i];
       }
     } else {
-      // Fallback, wenn keine validen Werte: Standardbereich 80-200 Hz
       minVal = 80;
       maxVal = 200;
     }
     var range = maxVal - minVal;
     if (range < 20) {
-      // Mindestens 20 Hz Spanne für die visuelle Darstellung
       var mid = (maxVal + minVal) / 2;
       minVal = mid - 10;
       maxVal = mid + 10;
@@ -546,7 +740,6 @@
     }
     if (range === 0) range = 20;
 
-    // Gitterlinien
     ctx.strokeStyle = '#2d3748';
     ctx.lineWidth = 0.5;
     for (var y = 0; y < h; y += 20) {
@@ -556,14 +749,12 @@
       ctx.stroke();
     }
 
-    // Pitch-Kurve zeichnen (von rechts nach links – neueste Werte rechts)
-    var maxPoints = w; // Maximal so viele Pixel wie Canvas breit
+    var maxPoints = w;
     var step = Math.max(1, Math.floor(values.length / maxPoints));
     var displayVals = [];
     for (var i = 0; i < values.length; i += step) {
       displayVals.push(values[i]);
     }
-    // Sicherstellen, dass der letzte Wert enthalten ist
     if (displayVals[displayVals.length - 1] !== values[values.length - 1]) {
       displayVals.push(values[values.length - 1]);
     }
@@ -577,7 +768,6 @@
 
     for (var i = 0; i < displayVals.length; i++) {
       var val = displayVals[i];
-      // Ungültige Werte (≤ 40 Hz) überspringen -> Linie unterbrechen
       if (val <= 40) {
         pathStarted = false;
         continue;
@@ -593,7 +783,6 @@
     }
     ctx.stroke();
 
-    // Aktuellen validen Wert (letzten) als Punkt hervorheben
     var lastValidVal = 0;
     var lastValidIdx = -1;
     for (var i = values.length - 1; i >= 0; i--) {
@@ -612,7 +801,6 @@
       ctx.fill();
     }
 
-    // Beschriftung: Min/Max Werte (basierend auf validen Werten)
     ctx.fillStyle = '#718096';
     ctx.font = '9px sans-serif';
     ctx.textAlign = 'left';
@@ -621,53 +809,51 @@
     ctx.fillText(Math.round(maxVal) + ' Hz', w - 4, 12);
   }
 
-  // Zustand für Delta-Limit (Sprung-Filter)
   var pitchEMA = 0;
-  var EMA_ALPHA = 0.15;  // 0.1 = sehr träge, 0.3 = reaktiver
+  var EMA_ALPHA = 0.15;
 
   function updateTonality(pitchHz, now) {
-    // Delta-Limit: Maximal 15 Hz Änderung pro Frame vom letzten gültigen Wert
     if (pitchHz > 0) {
       if (pitchEMA === 0) {
-        pitchEMA = pitchHz;  // Initialisierung
+        pitchEMA = pitchHz;
       } else {
         pitchEMA = EMA_ALPHA * pitchHz + (1 - EMA_ALPHA) * pitchEMA;
       }
       pitchHistory.push({ value: pitchEMA, ts: now });
     }
 
-    // Alte Werte löschen (älter als PITCH_WINDOW_MS)
     pruneByAge(pitchHistory, PITCH_WINDOW_MS, now);
     if (pitchHistory.length < 1) {
       drawPitchGraph();
+      drawPitchChart();
       return;
     }
-    // Mindestens 3 Sekunden valide Sprachdaten nötig
     var oldestTs = pitchHistory[0].ts;
     if (now - oldestTs < 3000) {
       drawPitchGraph();
+      drawPitchChart();
       return;
     }
     if (pitchHistory.length < 5) {
-      tonalityDisplay.textContent = '—';
-      tonalityIndicator.textContent = 'Unbekannt';
-      tonalityIndicator.className = 'indicator';
-      tonalityFeedback.textContent = '—';
-      tonalityFeedback.className = 'feedback-text';
+      if (tonalityDisplay) tonalityDisplay.textContent = '—';
+      if (tonalityIndicator) tonalityIndicator.textContent = 'Unbekannt';
+      if (tonalityIndicator) tonalityIndicator.className = 'indicator';
+      if (tonalityFeedback) tonalityFeedback.textContent = '—';
+      if (tonalityFeedback) tonalityFeedback.className = 'feedback-text';
       drawPitchGraph();
+      drawPitchChart();
       return;
     }
 
     var values = extractValues(pitchHistory);
     var validValues = filterValidPitchValues(values);
 
-    // Wenn nach Filterung keine validen Werte übrig sind: Pause / Stille
     if (validValues.length < 2) {
-      tonalityDisplay.textContent = '—';
-      tonalityIndicator.textContent = 'Pause / Keine Sprache';
-      tonalityIndicator.className = 'indicator';
-      // Text-Feedback nicht überschreiben, bleibt auf letztem bekannten Zustand
+      if (tonalityDisplay) tonalityDisplay.textContent = '—';
+      if (tonalityIndicator) tonalityIndicator.textContent = 'Pause / Keine Sprache';
+      if (tonalityIndicator) tonalityIndicator.className = 'indicator';
       drawPitchGraph();
+      drawPitchChart();
       return;
     }
 
@@ -679,27 +865,25 @@
     });
 
     var recentValues = filterValidPitchValues(extractValues(recentHistory));
-    recentValues = removeOutliers(recentValues);  // ← NEU: Ausreißer entfernen
+    recentValues = removeOutliers(recentValues);
     if (recentValues.length < 5) {
       drawPitchGraph();
+      drawPitchChart();
       return;
     }
 
     var stdDev = calcStdDev(recentValues);
     var fb = classifyTonalitySpan(stdDev);
 
-    // Tonhöhe (geglättet) anzeigen
-    tonalityDisplay.textContent = Math.round(smoothedAvg) + ' Hz';
+    if (tonalityDisplay) tonalityDisplay.textContent = Math.round(smoothedAvg) + ' Hz';
 
-    // === Text-Feedback basierend auf Standardabweichung der Trend-Linie ===
     if (now - lastToneFBTime >= FEEDBACK_INTERVAL) {
       lastToneFBTime = now;
       var fb = classifyTonalitySpan(stdDev);
-      tonalityFeedback.textContent = fb.label;
-      tonalityFeedback.className = 'feedback-text ' + fb.className;
+      if (tonalityFeedback) tonalityFeedback.textContent = fb.label;
+      if (tonalityFeedback) tonalityFeedback.className = 'feedback-text ' + fb.className;
     }
 
-    // Bestehenden Indikator (Monoton/Steigend/Fallend/Variiert) beibehalten
     var label, className;
     if (stdDev < 6) {
       label = 'Monoton'; className = 'tone-monotone';
@@ -717,11 +901,11 @@
         else                      { label = 'Variiert'; className = 'tone-varied'; }
       }
     }
-    tonalityIndicator.textContent = label;
-    tonalityIndicator.className = 'indicator ' + className;
+    if (tonalityIndicator) tonalityIndicator.textContent = label;
+    if (tonalityIndicator) tonalityIndicator.className = 'indicator ' + className;
 
-    // Pitch-Graph zeichnen
     drawPitchGraph();
+    drawPitchChart();
   }
 
   // ============================================================
@@ -743,15 +927,12 @@
     var rms = calculateRMS(timeDomainData);
     var now = Date.now();
 
-    // Pausen-Analyse
     detectPause(rms, now);
     updatePauseUI();
 
-    // Tonalitäts-Analyse (zeitbasiert auf 20s)
     var pitch = estimatePitch(timeDomainData, audioContext.sampleRate);
     updateTonality(pitch, now);
 
-    // Lautstärke-Analyse (zeitbasiert auf 10s)
     volumeHistory.push({ value: rms, ts: now });
     pruneByAge(volumeHistory, VOLUME_WINDOW_MS, now);
     var smoothedRMS = calcMovingAverage(extractValues(volumeHistory));
@@ -784,13 +965,13 @@
     sessionStart = Date.now();
     lastResultTime = Date.now();
 
-    micButton.classList.add('recording');
-    micStatus.textContent = 'Starte Mikrofon...';
-    fillerWarning.classList.add('hidden');
-    transcriptEl.textContent = '...';
-    wpmDisplay.textContent = '0';
+    if (micButton) micButton.classList.add('recording');
+    if (micStatus) micStatus.textContent = 'Starte Mikrofon...';
+    if (fillerWarning) fillerWarning.classList.add('hidden'); if (transcriptEl) transcriptEl.innerHTML = '...';
+    if (fillerIndicator) { fillerIndicator.textContent = '—'; fillerIndicator.className = 'card-emotion'; }
+    if (wpmDisplay) wpmDisplay.textContent = '0';
     feedbackDisp.textContent = '\u2014';
-    feedbackDisp.className = 'metric-value feedback';
+    if (feedbackDisp) feedbackDisp.className = 'card-emotion';
 
     if (wpmTimer) clearInterval(wpmTimer);
     wpmTimer = setInterval(updateWPM, WPM_INTERVAL_MS);
@@ -810,7 +991,7 @@
         } catch (e) {
           console.warn('[SA] start() fehlgeschlagen:', e.message);
           recognition = null;
-          micStatus.textContent = 'Start fehlgeschlagen';
+          if (micStatus) micStatus.textContent = 'Start fehlgeschlagen';
           isRecording = false;
         }
       })
@@ -818,27 +999,27 @@
         console.warn('[SA] getUserMedia fehlgeschlagen:', err.name, err.message);
         if (err.name === 'NotAllowedError') {
           if (!window.isSecureContext) {
-            micStatus.textContent = 'Bitte über localhost oder HTTPS öffnen (kein file://)';
+            if (micStatus) micStatus.textContent = 'Bitte über localhost oder HTTPS öffnen (kein file://)';
           } else {
-            micStatus.textContent = 'Mikrofon-Zugriff verweigert – Berechtigung in den Browser-Einstellungen erlauben';
+            if (micStatus) micStatus.textContent = 'Mikrofon-Zugriff verweigert – Berechtigung in den Browser-Einstellungen erlauben';
           }
         } else if (err.name === 'NotFoundError') {
           micStatus.textContent = 'Kein Mikrofon gefunden';
         } else if (err.name === 'NotReadableError') {
-          micStatus.textContent = 'Mikrofon wird von anderer App verwendet';
+          if (micStatus) micStatus.textContent = 'Mikrofon wird von anderer App verwendet';
         } else {
-          micStatus.textContent = 'Mikrofon-Zugriff verweigert';
+          if (micStatus) micStatus.textContent = 'Mikrofon-Zugriff verweigert';
         }
         isRecording = false;
-        micButton.classList.remove('recording');
+        if (micButton) micButton.classList.remove('recording');
         recognition = null;
       });
   }
 
   function stopRecording() {
     isRecording = false;
-    micButton.classList.remove('recording');
-    micStatus.textContent = 'Gestoppt';
+    if (micButton) micButton.classList.remove('recording');
+    if (micStatus) micStatus.textContent = 'Gestoppt';
 
     if (restartTimeout) {
       clearTimeout(restartTimeout);
@@ -887,16 +1068,15 @@
     sessionStart = null;
     pitchEMA = 0;
 
-    wpmDisplay.textContent = '0';
+    if (wpmDisplay) wpmDisplay.textContent = '0';
     feedbackDisp.textContent = '\u2014';
-    feedbackDisp.className = 'metric-value feedback';
-    fillerCountEl.textContent = '0';
-    fillerDensity.textContent = '0%';
-    fillerWarning.classList.add('hidden');
-    transcriptEl.textContent = '...';
-    micStatus.textContent = 'Klicke zum Starten';
+    if (feedbackDisp) feedbackDisp.className = 'card-emotion';
+    if (fillerCountEl) fillerCountEl.textContent = '0';
+    if (fillerDensity) fillerDensity.textContent = '0%';
+    if (fillerWarning) fillerWarning.classList.add('hidden'); if (transcriptEl) transcriptEl.innerHTML = '...';
+    if (fillerIndicator) { fillerIndicator.textContent = '—'; fillerIndicator.className = 'card-emotion'; }
+    if (micStatus) micStatus.textContent = 'Klicke zum Starten';
 
-    // === NEUE UI-ELEMENTE ZURÜCKSETZEN ===
     volumeHistory = [];
     pitchHistory = [];
     lastVolumeFBTime = 0;
@@ -905,16 +1085,15 @@
     currentPauseDuration = 0;
     isInPause = false;
     pauseStartTime = 0;
-    currentPauseDisplay.textContent = '0,0 s';
-    averagePauseDisplay.textContent = '0,0 s';
+    if (currentPauseDisplay) currentPauseDisplay.textContent = '0,0 s';
+    if (averagePauseDisplay) averagePauseDisplay.textContent = '0,0 s';
     pauseClassDisplay.textContent = '—';
     pauseClassDisplay.className = 'indicator';
-    tonalityDisplay.textContent = '—';
+    if (tonalityDisplay) tonalityDisplay.textContent = '—';
     tonalityIndicator.textContent = 'Monoton';
     tonalityIndicator.className = 'indicator tone-monotone';
-    tonalityFeedback.textContent = '—';
-    tonalityFeedback.className = 'feedback-text';
-    // Canvas leeren
+    if (tonalityFeedback) tonalityFeedback.textContent = '—';
+    if (tonalityFeedback) tonalityFeedback.className = 'feedback-text';
     if (pitchCtx && pitchCanvas) {
       pitchCtx.clearRect(0, 0, pitchCanvas.width, pitchCanvas.height);
       pitchCtx.fillStyle = '#1a1a2e';
@@ -924,15 +1103,24 @@
       pitchCtx.textAlign = 'center';
       pitchCtx.fillText('Pitch-Kurve', pitchCanvas.width / 2, pitchCanvas.height / 2 + 4);
     }
-    loudnessBar.style.width = '0%';
-    loudnessDisplay.textContent = '—';
-    loudnessDisplay.className = 'metric-value small';
-    loudnessFeedback.textContent = '—';
-    loudnessFeedback.className = 'feedback-text';
+    // SVG-Chart zurücksetzen
+    if (pitchLine) pitchLine.setAttribute('d', '');
+    if (pitchArea) pitchArea.setAttribute('d', '');
+    if (pitchDot) pitchDot.setAttribute('opacity', '0');
+    if (pitchMinLabel) pitchMinLabel.textContent = '0 Hz';
+    if (pitchMaxLabel) pitchMaxLabel.textContent = '0 Hz';
+    if (loudnessBar) loudnessBar.style.width = '0%';
+    if (loudnessDisplay) loudnessDisplay.textContent = '—';
+    if (loudnessDisplay) loudnessDisplay.className = 'metric-value small';
+    if (loudnessFeedback) loudnessFeedback.textContent = '—';
+    if (loudnessFeedback) loudnessFeedback.className = 'feedback-text';
+    if (speedExpertFeedback) { speedExpertFeedback.textContent = '—'; speedExpertFeedback.className = 'feedback-banner'; }
+    if (fillerExpertFeedback) { fillerExpertFeedback.textContent = '—'; fillerExpertFeedback.className = 'feedback-banner'; }
+    updateLoudnessNeedle(0);
   }
 
   // Event-Bindungen
-  micButton.addEventListener('click', function() {
+  if (micButton) micButton.addEventListener('click', function() {
     if (isRecording) {
       stopRecording();
     } else {
@@ -940,18 +1128,18 @@
     }
   });
 
-  resetButton.addEventListener('click', resetSession);
+  if (resetButton) resetButton.addEventListener('click', resetSession);
 
-  // Secure-Context-Prüfung: getUserMedia & SpeechRecognition benötigen HTTPS oder localhost
+  // Secure-Context-Prüfung
   if (!window.isSecureContext) {
     micStatus.textContent = 'Bitte über localhost oder HTTPS öffnen (kein file://)';
-    micButton.disabled = true;
+    if (micButton) micButton.disabled = true;
   }
 
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
     micStatus.textContent = 'Bitte Chrome/Edge verwenden';
-    micButton.disabled = true;
+    if (micButton) micButton.disabled = true;
   }
 
   window.addEventListener('beforeunload', function() {
@@ -969,6 +1157,6 @@
     }
   });
 
-  console.log('[SA] Speech Analyst v12 – Pitch-Glättung: Median-Filter + Delta-Limit 15 Hz + Cap 190 Hz');
+  console.log('[SA] Speech Analyst Pro v13 – SVG-Line-Chart + Modus-Toggle + Filler-Highlights');
 
 })();
