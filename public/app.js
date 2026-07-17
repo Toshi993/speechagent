@@ -107,6 +107,7 @@
   var pauseStartTime      = 0;
   var pauseDurations      = [];
   var currentPauseDuration = 0;
+  var recentPauses = [];
 
   // === ZEITBASIERTER GLEITENDER MITTELWERT (Moving Average) – Zustand ===
   var VOLUME_WINDOW_MS  = 10000;
@@ -621,6 +622,7 @@
         var durationSec = (now - pauseStartTime) / 1000;
         if (durationSec >= PAUSE_MIN_DURATION_MS / 1000) {
           pauseDurations.push(durationSec);
+          recentPauses.push({ endTimestamp: now, duration: durationSec });
         }
         isInPause = false;
         currentPauseDuration = 0;
@@ -635,14 +637,45 @@
   }
 
   function updatePauseUI() {
-    var avg = pauseDurations.length > 0
-      ? pauseDurations.reduce(function(a, b) { return a + b; }, 0) / pauseDurations.length
-      : 0;
-    if (currentPauseDisplay) currentPauseDisplay.textContent = currentPauseDuration.toFixed(1).replace('.', ',') + ' s';
-    if (averagePauseDisplay) averagePauseDisplay.textContent = avg.toFixed(1).replace('.', ',') + ' s';
-    var cls = classifyPause(currentPauseDuration);
-    if (pauseClassDisplay) pauseClassDisplay.textContent = isInPause ? cls.label : '—';
-    if (pauseClassDisplay) pauseClassDisplay.className = 'indicator ' + (isInPause ? cls.className : '');
+    var now = Date.now();
+    // Bereinigung: Entferne Einträge älter als 30 Sekunden
+    var cutoff = now - 30000;
+    while (recentPauses.length > 0 && recentPauses[0].endTimestamp < cutoff) {
+      recentPauses.shift();
+    }
+
+    var count30s = recentPauses.length;
+    var totalDuration30s = recentPauses.reduce(function(sum, p) { return sum + p.duration; }, 0);
+
+    // Feedback-Text und Klasse bestimmen
+    var feedbackText, feedbackClass;
+    if (totalDuration30s < 2.5 || count30s < 3) {
+      feedbackText = 'Mehr Pausen einbauen!';
+      feedbackClass = 'warning';
+    } else if (totalDuration30s <= 7.0 && count30s >= 3) {
+      feedbackText = 'Gute Pausenanzahl und Länge';
+      feedbackClass = 'success';
+    } else {
+      feedbackText = 'Verringere deine Pausen';
+      feedbackClass = 'danger';
+    }
+
+    // Standard-Ansicht: Feedback-Text
+    if (pauseClassDisplay) {
+      pauseClassDisplay.textContent = feedbackText;
+      pauseClassDisplay.className = 'card-emotion ' + feedbackClass;
+    }
+
+    // Experten-Ansicht: Aktuelle Pausenlänge
+    if (currentPauseDisplay) {
+      currentPauseDisplay.textContent = currentPauseDuration.toFixed(1).replace('.', ',') + ' s';
+    }
+
+    // Experten-Ansicht: Statistik der letzten 30 Sekunden
+    if (averagePauseDisplay) {
+      var avgStr = totalDuration30s.toFixed(1).replace('.', ',') + ' s';
+      averagePauseDisplay.textContent = 'Dauer: ' + avgStr + ' | Anzahl: ' + count30s;
+    }
   }
 
   // ============================================================
@@ -1082,13 +1115,14 @@
     lastVolumeFBTime = 0;
     lastToneFBTime = 0;
     pauseDurations = [];
+    recentPauses = [];
     currentPauseDuration = 0;
     isInPause = false;
     pauseStartTime = 0;
     if (currentPauseDisplay) currentPauseDisplay.textContent = '0,0 s';
-    if (averagePauseDisplay) averagePauseDisplay.textContent = '0,0 s';
+    if (averagePauseDisplay) averagePauseDisplay.textContent = 'Dauer: 0,0 s | Anzahl: 0';
     pauseClassDisplay.textContent = '—';
-    pauseClassDisplay.className = 'indicator';
+    pauseClassDisplay.className = 'card-emotion';
     if (tonalityDisplay) tonalityDisplay.textContent = '—';
     tonalityIndicator.textContent = 'Monoton';
     tonalityIndicator.className = 'indicator tone-monotone';
